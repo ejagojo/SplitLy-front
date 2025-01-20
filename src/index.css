@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 
+  Animated background effect: 
+  We'll create a subtle floating gradient using keyframes.
+  This is purely optional styling to bring the site "to life."
+*/
+
+/* Use a keyframe for subtle gradient shifting */
+@keyframes gradientShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+
+  /* 
+    We'll rely on container backgrounds on each page, 
+    but can add a fallback gradient here if you want 
+    an always-animated vibe site-wide.
+  */
+  background: linear-gradient(-45deg, #f0f0f0, #ffffff, #f0f0f0);
+  background-size: 400% 400%;
+  animation: gradientShift 15s ease infinite;
+}
+
+/* Tailwind utility overrides / custom classes */
+.bg-primary {
+  background-color: #1a202c; /* Dark gray/charcoal */
+}
+
+.text-secondary {
+  color: #ffffff; /* White */
+}
+
+.text-accent {
+  color: #1d4ed8; /* Blue-700 as accent */
+}
+
+/* Buttons: ensure visible text and scale on hover */
+button {
+  transition: all 0.3s ease;
+  font-weight: 600;
+}
+
+button:hover {
+  transform: scale(1.03);
+}
+
+/* 
+  Additional styling for page backgrounds 
+  (some pages use their own gradient classes).
+*/
