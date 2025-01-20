@@ -34,9 +34,7 @@ export default function Login() {
   const handleGoogleLogin = async () => {
     try {
       const result = await signInWithPopup(auth, googleProvider);
-      // OPTIONAL: Log the returned user info for debugging
       console.log("Google Sign-in successful. User:", result.user);
-      // Navigate to Dashboard on success
       navigate("/dashboard");
     } catch (error) {
       alert("Google login failed: " + error.message);

@@ -17,6 +17,8 @@ export default function Dashboard() {
        * This accommodates the Navbar’s height plus 
        * extra breathing room.
        */}
+
+
       <header className="bg-primary text-white p-5 rounded shadow flex flex-col gap-2 md:flex-row md:justify-between md:items-center">
         <h1 className="text-2xl font-bold">SplitLy Dashboard</h1>
         <Link
