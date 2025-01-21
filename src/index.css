@@ -62,3 +62,8 @@ button:hover {
   Additional styling for page backgrounds 
   (some pages use their own gradient classes).
 */
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}

@@ -18,19 +18,7 @@ import "./App.css";
 function App() {
   return (
     <>
-      {/**
-       * Navbar is fixed; the rest of the content 
-       * adjusts via extra padding or margins in 
-       * the individual pages.
-       */}
       <Navbar />
-
-      {/**
-       * The main router area. 
-       * We do NOT add extra padding or margin 
-       * here because each page can handle it 
-       * individually (e.g., Dashboard uses pt-28).
-       */}
       <Routes>
         {/* Home page */}
         <Route path="/" element={<Home />} />

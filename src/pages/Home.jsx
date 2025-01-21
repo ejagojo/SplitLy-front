@@ -1,29 +1,16 @@
 import { Link } from "react-router-dom";
-/* 
-  We import react-icons for small button icons 
-  that enhance the interface.
-*/
 import { FiLogIn, FiUserPlus } from "react-icons/fi";
 
-/**
- * Updated Home component:
- * - Slightly smaller, more mobile-friendly buttons
- * - Icons to make the interface more lively
- * - Subtle hover and entrance animations for a more polished appearance
- */
 export default function Home() {
   return (
-    <div className="relative flex flex-col items-center justify-center min-h-screen bg-gray-100 text-center overflow-hidden">
-      {/* 
-        We add a simple floating shape or gradient background if you'd like.
-        The main background animation is handled by body in your index.css,
-        but here's an optional extra shape or overlay. 
-      */}
+    <div className="relative flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-gray-100 to-white text-center overflow-hidden">
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        {/* Translucent radial gradient shape in top-left corner */}
-        <div className="absolute top-[-10%] left-[-20%] w-96 h-96 bg-purple-300 rounded-full opacity-30 animate-pulse" />
+        {/* Translucent radial gradient shape (top-left) */}
+        <div className="absolute top-[-10%] left-[-20%] w-96 h-96 bg-purple-300 rounded-full opacity-30 animate-pulse animate-[spin_20s_linear_infinite]" />
         {/* Another shape in bottom-right corner */}
-        <div className="absolute bottom-[-10%] right-[-20%] w-80 h-80 bg-pink-300 rounded-full opacity-30 animate-pulse delay-1000" />
+        <div className="absolute bottom-[-10%] right-[-20%] w-80 h-80 bg-pink-300 rounded-full opacity-30 animate-pulse delay-1000 animate-[spin_40s_linear_infinite]" />
+        {/* Additional floating shape (center) */}
+        <div className="absolute top-[40%] left-[45%] w-48 h-48 bg-blue-300 rounded-full opacity-20 animate-bounce" />
       </div>
 
       {/* Main content */}

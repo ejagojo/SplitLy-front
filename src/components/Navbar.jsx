@@ -14,14 +14,14 @@ export default function Navbar() {
           SplitLy
         </h1>
 
-        <nav className="space-x-6">
+        {/* <nav className="space-x-6">
           <Link to="/login" className="hover:text-accent transition-colors">
             Login
           </Link>
           <Link to="/signup" className="hover:text-accent transition-colors">
             Sign Up
           </Link>
-        </nav>
+        </nav> */}
       </div>
     </header>
   );

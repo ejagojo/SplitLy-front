@@ -1,3 +1,15 @@
+/***************************************
+ * File: Dashboard.jsx
+ * Location: /src/pages/Dashboard.jsx
+ * 
+ * Changes Made:
+ * 1. Added a subtle rotating/pulsing shape 
+ *    behind the main dashboard area for consistency 
+ *    with the Home page’s animated feel.
+ * 2. Retained the gradient background from gray-50 
+ *    to gray-100 as requested.
+ ***************************************/
+
 import { Link } from "react-router-dom";
 
 /**
@@ -5,21 +17,17 @@ import { Link } from "react-router-dom";
  * additional content, and improved spacing 
  * to avoid collision with the fixed Navbar.
  * 
- * Updated button classes so they have a non-white
- * background color and visible text.
+ * Now includes a rotating shape for a more "alive" design.
  */
 export default function Dashboard() {
   return (
-    <div className="min-h-screen pt-28 px-6 bg-gradient-to-b from-gray-50 to-gray-100">
-      {/**
-       * We use pt-28 to ensure the dashboard content 
-       * doesn't collide with the fixed Navbar. 
-       * This accommodates the Navbar’s height plus 
-       * extra breathing room.
-       */}
+    <div className="relative min-h-screen pt-28 px-6 bg-gradient-to-b from-gray-50 to-gray-100">
+      {/* Animated background shape */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-32 left-1/2 -translate-x-1/2 w-96 h-96 bg-purple-300 rounded-full opacity-20 animate-[spin_30s_linear_infinite]" />
+      </div>
 
-
-      <header className="bg-primary text-white p-5 rounded shadow flex flex-col gap-2 md:flex-row md:justify-between md:items-center">
+      <header className="bg-primary text-white p-5 rounded shadow flex flex-col gap-2 md:flex-row md:justify-between md:items-center relative z-10">
         <h1 className="text-2xl font-bold">SplitLy Dashboard</h1>
         <Link
           to="/login"
@@ -29,15 +37,11 @@ export default function Dashboard() {
         </Link>
       </header>
 
-      <main className="mt-8">
+      <main className="mt-8 relative z-10">
         <h2 className="text-xl font-semibold mb-4">
           What would you like to do?
         </h2>
         <div className="grid gap-4 mb-8 md:grid-cols-3">
-          {/* 
-            Buttons now have a clearly distinct background color 
-            and white text, so they're easy to see.
-          */}
           <Link
             to="/receipt/upload"
             className="p-4 bg-blue-600 text-white font-semibold rounded shadow hover:bg-blue-700 transition text-center"

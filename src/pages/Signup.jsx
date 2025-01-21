@@ -1,3 +1,13 @@
+/***************************************
+ * File: Signup.jsx
+ * Location: /src/pages/Signup.jsx
+ * 
+ * Changes Made:
+ * 1. Added a floating background shape 
+ *    to maintain an animated, lively design.
+ * 2. Preserved the original sign-up logic.
+ ***************************************/
+
 import { useState } from "react";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { Link, useNavigate } from "react-router-dom";
@@ -23,8 +33,13 @@ export default function Signup() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-gray-100 to-gray-300">
-      <div className="bg-white shadow-lg rounded-lg p-6 w-full max-w-md">
+    <div className="relative min-h-screen flex items-center justify-center bg-gradient-to-b from-gray-100 to-gray-300 overflow-hidden">
+      {/* Animated background shape */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-[30%] left-[60%] w-80 h-80 bg-blue-500 rounded-full opacity-20 animate-[spin_25s_linear_infinite]" />
+      </div>
+
+      <div className="bg-white shadow-lg rounded-lg p-6 w-full max-w-md z-10">
         <h1 className="text-xl font-semibold mb-6">Sign up for SplitLy</h1>
         <input
           type="email"
