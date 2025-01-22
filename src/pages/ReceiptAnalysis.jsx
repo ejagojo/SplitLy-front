@@ -3,67 +3,23 @@
  * Location: /src/pages/ReceiptAnalysis.jsx
  *
  * Changes Made:
- * 1. We now first check localStorage for a "receiptItems" array
- *    (as stored by UploadReceipt.jsx) and separate it into
- *    normal items vs. summary items (tax, tip, total, etc.).
- * 2. Preserved the original parse logic for reference, but
- *    commented it out so we no longer rely on splitting raw lines.
- * 3. Page remains read-only for demonstration while retaining
- *    the pastel-themed UI and placeholder text.
+ * 1. Removed the placeholder text under the main heading.
+ * 2. Added integration points for the interactive messenger 
+ *    (“Generate Messenger Link”) and final cost breakdown 
+ *    (“Calculate Final Breakdown”) buttons.
+ * 3. Displays a read-only table of the final breakdown returned 
+ *    from the backend, showing each user’s owed amount.
+ * 4. Preserved existing separation of normal items vs. summary items 
+ *    (Tax, Tip, Total, etc.).
  *****************************************/
 
 import React, { useState, useEffect } from "react";
 
-/*
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ORIGINAL HELPER FUNCTIONS (commented out for reference)
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-// 1) A quick helper to parse raw lines into items or summary:
-function extractRelevantLines(ocrText) {
-  const lines = ocrText.split("\n").map((l) => l.trim());
-  const summaryRegex = /(tax|tip|total|subtotal|amount due|due|balance|paid|change)/i;
-  const currencyRegex = /(\$|(\d+\.\d{2}))/;
-
-  const itemLines = [];
-  const summaryLines = [];
-
-  lines.forEach((line) => {
-    if (!line) return;
-
-    // If line has "summary" keywords or is purely currency, treat as summary
-    if (summaryRegex.test(line) || /^(?:.*\s+)?(\$?\d+\.\d{2})(?:\s.*)?$/.test(line)) {
-      if (currencyRegex.test(line) || summaryRegex.test(line)) {
-        summaryLines.push(line);
-      }
-    } else if (currencyRegex.test(line)) {
-      itemLines.push(line);
-    }
-  });
-
-  return { itemLines, summaryLines };
-}
-
-// 2) Helper to parse an item line into { qty, name, price }:
-function parseItemLine(line) {
-  let qty = "1";
-  let name = line;
-  let price = "";
-
-  const qtyMatch = line.match(/^(\d+)\s+(.*)/);
-  if (qtyMatch) {
-    qty = qtyMatch[1];
-    name = qtyMatch[2];
-  }
-  const priceMatch = name.match(/(\$?\d+\.\d{2})$/);
-  if (priceMatch) {
-    price = priceMatch[1];
-    name = name.replace(price, "").trim();
-  }
-
-  return { qty, name: name || "Item", price: price || "$0.00" };
-}
-*/
+// function extractRelevantLines(ocrText) { ... }
+// function parseItemLine(line) { ... }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // New helper: separate items from summary by checking item.name
@@ -75,7 +31,11 @@ function separateSummaryFromItems(allItems) {
 
   allItems.forEach((item) => {
     // If the name indicates a summary element, we put it in summaryItems
-    if (summaryKeywords.some((keyword) => item.name.toLowerCase().includes(keyword.toLowerCase()))) {
+    if (
+      summaryKeywords.some((keyword) =>
+        item.name.toLowerCase().includes(keyword.toLowerCase())
+      )
+    ) {
       summaryItems.push(item);
     } else {
       normalItems.push(item);
@@ -90,15 +50,23 @@ export default function ReceiptAnalysis() {
   const [items, setItems] = useState([]);      // Normal items
   const [summary, setSummary] = useState([]);  // Summary lines/items
 
+  // For final cost breakdown after calculations
+  const [finalBreakdown, setFinalBreakdown] = useState([]);
+
+  // Shareable link for the interactive messenger
+  const [messengerLink, setMessengerLink] = useState("");
+
   useEffect(() => {
     // 1) Check if structured items exist in localStorage
     const storedItemsJSON = localStorage.getItem("receiptItems");
 
-    // 2) If found, we parse them and separate
+    // 2) If found, parse them and separate
     if (storedItemsJSON) {
       try {
         const parsedAllItems = JSON.parse(storedItemsJSON);
-        const { normalItems, summaryItems } = separateSummaryFromItems(parsedAllItems);
+        const { normalItems, summaryItems } = separateSummaryFromItems(
+          parsedAllItems
+        );
         setItems(normalItems);
         setSummary(summaryItems);
         return;
@@ -107,14 +75,11 @@ export default function ReceiptAnalysis() {
       }
     }
 
-    // 3) Otherwise, we fallback to using "receiptText" if it exists
-    //    (original approach). We'll parse lines from raw text,
-    //    then separate them. This code is commented out to preserve
-    //    the new logic of reading from "receiptItems."
+    // 3) Otherwise, we fallback to the original raw-text approach 
+    //    (commented out). We are now focusing on item arrays.
     /*
     const rawText = localStorage.getItem("receiptText");
     if (rawText) {
-      // Original logic:
       const { itemLines, summaryLines } = extractRelevantLines(rawText);
       const parsedItems = itemLines.map((l) => parseItemLine(l));
       setItems(parsedItems);
@@ -123,20 +88,79 @@ export default function ReceiptAnalysis() {
     */
   }, []);
 
+  /**
+   * handleGenerateMessengerLink:
+   * - Calls the backend to create or fetch a unique link for 
+   *   the interactive messenger. In a real environment, 
+   *   you'd send "items" and "summary" to store them server-side.
+   */
+  const handleGenerateMessengerLink = async () => {
+    try {
+      // Example request to backend, e.g. POST /api/messenger/link
+      // Pass items and summary so the server can store them
+      const requestBody = { items, summary };
+      const response = await fetch("/api/receipt/generate-messenger-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+      if (!response.ok) {
+        throw new Error("Failed to generate messenger link");
+      }
+      const data = await response.json();
+      // Suppose the backend returns { messengerLink: "https://..." }
+      setMessengerLink(data.messengerLink);
+      alert("Messenger link generated successfully!");
+    } catch (err) {
+      console.error("Error generating messenger link:", err);
+      alert("Failed to generate link. Please try again later.");
+    }
+  };
+
+  /**
+   * handleCalculateBreakdown:
+   * - Calls the backend to compute how much each user owes, 
+   *   including any tip/tax from the summary items. The server 
+   *   can parse 'summary' to detect taxes/tips, then distribute 
+   *   costs across users who claimed items.
+   */
+  const handleCalculateBreakdown = async () => {
+    try {
+      // Example request to backend, e.g. POST /api/receipt/final-breakdown
+      // Body includes items and summary
+      const requestBody = { items, summary };
+      const response = await fetch("/api/receipt/final-breakdown", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+      if (!response.ok) {
+        throw new Error("Failed to calculate breakdown");
+      }
+      const data = await response.json();
+      // Suppose the backend returns something like:
+      // [
+      //   { userName: "Alice", totalOwed: 12.75 },
+      //   { userName: "Bob", totalOwed: 8.50 }
+      // ]
+      setFinalBreakdown(data);
+      alert("Final breakdown calculated!");
+    } catch (err) {
+      console.error("Error calculating final breakdown:", err);
+      alert("Failed to calculate final breakdown. Please try again later.");
+    }
+  };
+
   return (
     <div className="pt-28 px-6 min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
-      <h1 className="text-2xl font-bold mb-4">Receipt Analysis</h1>
-      <p className="text-gray-600 mb-6">
-        Placeholder for analyzing the uploaded receipt and assigning items
-        to users or friends. (In a real flow, you’d add controls here for
-        item assignments.)
-      </p>
+      {/* Updated heading without the old placeholder text */}
+      <h1 className="text-2xl font-bold mb-4">Receipt Breakdown</h1>
 
-      {/* Only display the rest if we have items or summary */}
+      {/* We only display the rest if we have items or summary */}
       {(items.length > 0 || summary.length > 0) && (
         <div className="bg-white p-5 rounded shadow">
           <h2 className="text-lg font-semibold mb-4 text-gray-800 flex items-center gap-2">
-            <span>🧾</span> Analyzed Receipt
+            <span>🧾</span> Analyzed Receipt Details
           </h2>
 
           {/* Items table (read-only) */}
@@ -196,11 +220,71 @@ export default function ReceiptAnalysis() {
                       {/* e.g. "Tax $2.00" or "Total $35.00" */}
                       {`${summaryItem.name} ${summaryItem.price}`}
                     </div>
-                    {/* If you want to show quantity for summary lines, you could:
-                     <div className="text-pink-600">{summaryItem.qty}</div> 
-                    */}
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Action buttons for interactive messenger & final breakdown */}
+          <div className="mt-6 flex flex-col md:flex-row gap-4">
+            {/* Generate Messenger Link Button */}
+            <button
+              onClick={handleGenerateMessengerLink}
+              className="px-5 py-3 bg-blue-600 text-white font-semibold rounded hover:bg-blue-700 transition"
+            >
+              Generate Messenger Link
+            </button>
+
+            {/* Calculate Final Breakdown Button */}
+            <button
+              onClick={handleCalculateBreakdown}
+              className="px-5 py-3 bg-green-600 text-white font-semibold rounded hover:bg-green-700 transition"
+            >
+              Calculate Final Breakdown
+            </button>
+          </div>
+
+          {/* Display the generated Messenger Link, if any */}
+          {messengerLink && (
+            <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded">
+              <h4 className="text-md font-bold mb-2 text-blue-700">Messenger Link</h4>
+              <p className="text-gray-700 break-all">{messengerLink}</p>
+              <p className="text-sm text-gray-500">
+                Share this link with others so they can claim items in the interactive messenger.
+              </p>
+            </div>
+          )}
+
+          {/* Display the final breakdown table, if we have data */}
+          {finalBreakdown.length > 0 && (
+            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded">
+              <h4 className="text-md font-bold mb-2 text-green-700">Final Cost Breakdown</h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="bg-green-100 text-green-700 uppercase">
+                      <th className="p-2 font-semibold">Participant</th>
+                      <th className="p-2 font-semibold">Amount Owed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {finalBreakdown.map((person, i) => (
+                      <tr key={i} className="border-b last:border-none">
+                        <td className="p-2">
+                          <div className="bg-green-50 border border-green-200 rounded px-2 py-1">
+                            {person.userName}
+                          </div>
+                        </td>
+                        <td className="p-2">
+                          <div className="bg-green-50 border border-green-200 rounded px-2 py-1">
+                            ${person.totalOwed.toFixed(2)}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
