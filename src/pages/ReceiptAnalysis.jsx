@@ -137,30 +137,41 @@ export default function ReceiptAnalysis() {
       const assignments = assignmentSnap.data().assignments;
       const sumOfItemPrices = items.reduce((acc, i) => acc + parseFloat(i.price || 0), 0);
 
+      // Identify Tax and Tip totals
       const taxItem = summary.find((s) => s.name.toLowerCase().includes("tax"));
       const tipItem = summary.find((s) => s.name.toLowerCase().includes("tip"));
       const totalTax = parseFloat(taxItem?.price || 0);
       const totalTip = parseFloat(tipItem?.price || 0);
       const totalSummary = totalTax + totalTip;
 
-      const totals = assignments.map((assignment) => {
+      // Build final cost array with detailed info
+      const details = assignments.map((assignment) => {
         const assignedItem = assignment.item || {};
+        const itemName = assignedItem.name || "Unknown Item";
         const qty = parseInt(assignedItem.qty || "1", 10);
         const price = parseFloat(assignedItem.price || "0");
         const itemTotal = qty * price;
 
-        let share = 0;
+        // Tax + Tip contributions
+        let shareTax = 0;
+        let shareTip = 0;
         if (sumOfItemPrices > 0) {
-          share = (itemTotal / sumOfItemPrices) * totalSummary;
+          shareTax = (itemTotal / sumOfItemPrices) * totalTax;
+          shareTip = (itemTotal / sumOfItemPrices) * totalTip;
         }
 
         return {
           userName: assignment.userName,
-          totalOwed: itemTotal + share
+          itemName,
+          itemQty: qty,
+          itemBaseCost: itemTotal,
+          taxContribution: shareTax,
+          tipContribution: shareTip,
+          totalOwed: itemTotal + shareTax + shareTip
         };
       });
 
-      setFinalBreakdown(totals);
+      setFinalBreakdown(details);
       alert("Final breakdown calculated successfully!");
     } catch (err) {
       if (err.code === "permission-denied") {
@@ -286,7 +297,7 @@ export default function ReceiptAnalysis() {
             </div>
           )}
 
-          {/* Improved Final Breakdown: card-style display */}
+          {/* Improved Final Breakdown: card-style display with item details & tax/tip */}
           {finalBreakdown.length > 0 && (
             <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded">
               <h4 className="text-md font-bold text-green-700">Final Breakdown</h4>
@@ -300,7 +311,31 @@ export default function ReceiptAnalysis() {
                       {person.userName}
                     </h5>
                     <p className="text-sm text-gray-600">
-                      <span className="font-medium">Owes:</span>{" "}
+                      <span className="font-medium">Item:</span>{" "}
+                      <span className="text-gray-800">
+                        {person.itemName} (x{person.itemQty})
+                      </span>
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Base Cost:</span>{" "}
+                      <span className="text-gray-800">
+                        ${person.itemBaseCost.toFixed(2)}
+                      </span>
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Tax Contribution:</span>{" "}
+                      <span className="text-gray-800">
+                        ${person.taxContribution.toFixed(2)}
+                      </span>
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Tip Contribution:</span>{" "}
+                      <span className="text-gray-800">
+                        ${person.tipContribution.toFixed(2)}
+                      </span>
+                    </p>
+                    <p className="text-sm text-gray-600 border-t pt-2 mt-2">
+                      <span className="font-medium">Total Owed:</span>{" "}
                       <span className="text-gray-800">
                         ${person.totalOwed.toFixed(2)}
                       </span>
