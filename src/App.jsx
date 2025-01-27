@@ -11,6 +11,7 @@ import ReceiptAnalysis from "./pages/ReceiptAnalysis";
 import InteractiveMessenger from "./pages/InteractiveMessenger";
 import FinalCalculation from "./pages/FinalCalculation";
 import ReceiptHistory from "./pages/ReceiptHistory";
+import ReceiptAssign from "./pages/ReceiptAssign";
 import ConnectedAccounts from "./pages/ConnectedAccounts";
 import InputReceipt from "./pages/InputReceipt";
 
@@ -34,6 +35,7 @@ function App() {
         <Route path="/receipt/upload" element={<UploadReceipt />} />
         <Route path="/receipt/history" element={<ReceiptHistory />} />
         <Route path="/receipt/analysis" element={<ReceiptAnalysis />} />
+        <Route path="/receipt/assign/:userId" element={<ReceiptAssign />} />
         <Route path="/interactive-messenger" element={<InteractiveMessenger />} />
         <Route path="/final-calculation" element={<FinalCalculation />} />
         <Route path="/payments/accounts" element={<ConnectedAccounts />} />
