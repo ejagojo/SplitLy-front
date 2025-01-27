@@ -1,17 +1,29 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+// TODO: Automaticaly adjust the total based on the added items and the added tax and tip
+
 // Predefined item templates for auto-suggestions
 const predefinedItems = [
   { qty: "1", name: "Coffee", price: "2.50" },
   { qty: "1", name: "Sandwich", price: "5.00" },
   { qty: "1", name: "Salad", price: "4.50" },
   { qty: "1", name: "Juice", price: "3.00" },
+  { qty: "1", name: "Buffalo Wild Wings", price: "5.00"}
 ];
 
+/**
+ * This component allows users to enter regular items plus optional Tax and Tip fields
+ * without forcing them to treat those as separate items in the list.
+ */
 export default function InputReceipt() {
   const [items, setItems] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+
+  // New states for handling Tax & Tip
+  const [receiptTax, setReceiptTax] = useState("");
+  const [receiptTip, setReceiptTip] = useState("");
+
   const navigate = useNavigate();
 
   // Filter items based on the search term for suggestions
@@ -57,9 +69,19 @@ export default function InputReceipt() {
       alert("Please add at least one item before submitting.");
       return;
     }
+
+    // Convert to numeric safely
+    const taxNumber = parseFloat(receiptTax) || 0;
+    const tipNumber = parseFloat(receiptTip) || 0;
+
     // Save items to localStorage for analysis
     localStorage.setItem("receiptItems", JSON.stringify(items));
-    alert("Items saved successfully!");
+
+    // Save the tax and tip so other pages can use them as needed
+    localStorage.setItem("receiptTax", taxNumber.toString());
+    localStorage.setItem("receiptTip", tipNumber.toString());
+
+    alert("Items and Tax/Tip saved successfully!");
     navigate("/receipt/analysis"); // Navigate to ReceiptAnalysis page
   };
 
@@ -70,7 +92,7 @@ export default function InputReceipt() {
       <p className="text-gray-600 mb-6">
         Manually input your receipt details below. Search for common items, use
         suggestions, or add your custom entries. Once done, click "Submit" to
-        save your receipt.
+        save your receipt, along with optional Tax and Tip values.
       </p>
 
       {/* Search and Suggestions Section */}
@@ -118,7 +140,6 @@ export default function InputReceipt() {
           to add additional items to the list.
         </p>
 
-        {/* Items Table */}
         {items.length > 0 ? (
           <div className="overflow-auto">
             <table className="w-full text-left text-sm">
@@ -192,8 +213,45 @@ export default function InputReceipt() {
         </div>
       </div>
 
+      {/* Separate Fields for Tax & Tip */}
+      <div className="mt-6 p-5 bg-white rounded shadow w-full max-w-3xl">
+        <h3 className="text-xl font-bold mb-3 text-gray-800 flex items-center gap-2">
+          <span>💰</span> Additional Charges
+        </h3>
+        <p className="text-sm text-gray-500 mb-4">
+          If applicable, enter your Tax and Tip amounts here.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Tax Field */}
+          <div>
+            <label className="block font-medium text-gray-700 mb-1">Tax</label>
+            <input
+              type="number"
+              step="0.01"
+              className="w-full bg-purple-50 border border-purple-200 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-400"
+              placeholder="0.00"
+              value={receiptTax}
+              onChange={(e) => setReceiptTax(e.target.value)}
+            />
+          </div>
+
+          {/* Tip Field */}
+          <div>
+            <label className="block font-medium text-gray-700 mb-1">Tip</label>
+            <input
+              type="number"
+              step="0.01"
+              className="w-full bg-purple-50 border border-purple-200 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-400"
+              placeholder="0.00"
+              value={receiptTip}
+              onChange={(e) => setReceiptTip(e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
+
       {/* Submit Button */}
-      <div className="mt-6">
+      <div className="mt-8">
         <button
           onClick={handleSubmit}
           className="px-6 py-3 bg-green-600 text-white font-semibold rounded shadow hover:bg-green-700 transition"

@@ -1,16 +1,39 @@
 import React, { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { getFirestore, doc, setDoc, updateDoc, getDoc } from "firebase/firestore";
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  updateDoc,
+  getDoc
+} from "firebase/firestore";
 
 const db = getFirestore();
 
+/**
+ * Checks if every item in `items` has a corresponding assignment in `assignments`.
+ * If so, we consider all participants done.
+ */
+function isAllItemsAssigned(items, assignments) {
+  // If no items exist, we can’t mark them all assigned
+  if (!items.length) return false;
+
+  return items.every((_, index) => {
+    const assignedName = assignments[index];
+    // Must have a non-empty name to be considered assigned
+    return assignedName && assignedName.trim().length > 0;
+  });
+}
+
 export default function ReceiptAssign() {
-  const { userId } = useParams(); // Get userId from the URL
+  const { userId } = useParams(); // The host user’s ID from the URL
   const [items, setItems] = useState([]);
   const [summary, setSummary] = useState([]);
-  const [assignments, setAssignments] = useState({}); // Tracks item assignments
+  const [assignments, setAssignments] = useState({}); // Tracks item -> assigned user
 
-  // Fetch receipt data for the given userId
+  /**
+   * Fetch the data from Firestore: `receipt_links/{userId}` for items + summary.
+   */
   useEffect(() => {
     const fetchReceiptData = async () => {
       try {
@@ -22,7 +45,7 @@ export default function ReceiptAssign() {
           setItems(items || []);
           setSummary(summary || []);
         } else {
-          alert("No receipt data found.");
+          alert("No receipt data found for this link.");
         }
       } catch (err) {
         console.error("Error fetching receipt data:", err);
@@ -33,37 +56,51 @@ export default function ReceiptAssign() {
     fetchReceiptData();
   }, [userId]);
 
-  // Handle assignment changes for an item
+  /**
+   * Called when a user type changes an assignment for an item at index `index`.
+   */
   const handleAssignmentChange = (index, userName) => {
     setAssignments((prev) => ({
       ...prev,
-      [index]: userName,
+      [index]: userName
     }));
   };
 
-  // Submit assignments to Firestore
+  /**
+   * Submits assignments to Firestore at `receipt_assignments/{userId}`.
+   * Then, if every item is assigned, we set `assignmentsComplete = true` in `receipt_links/{userId}`
+   * so the host is notified in real-time that participants are done.
+   */
   const handleSubmitAssignments = async () => {
     try {
+      // Convert the local `assignments` object into an array: { userName, item }
       const assignmentData = Object.entries(assignments).map(([index, userName]) => ({
         userName,
-        item: items[index],
+        item: items[Number(index)]
       }));
 
-      const docRef = doc(db, "receipt_assignments", userId);
-      const docSnap = await getDoc(docRef);
+      // Upsert the user’s assignments in `receipt_assignments/{userId}`
+      const assignmentRef = doc(db, "receipt_assignments", userId);
+      const docSnap = await getDoc(assignmentRef);
 
-      // Use setDoc for new documents or updateDoc for existing ones
+      const now = new Date().toISOString();
       if (docSnap.exists()) {
-        await updateDoc(docRef, {
+        await updateDoc(assignmentRef, {
           assignments: assignmentData,
-          updatedAt: new Date().toISOString(),
+          updatedAt: now
         });
       } else {
-        await setDoc(docRef, {
+        await setDoc(assignmentRef, {
           assignments: assignmentData,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          createdAt: now,
+          updatedAt: now
         });
+      }
+
+      // If all items have valid assignments, notify the host
+      if (isAllItemsAssigned(items, assignments)) {
+        const linkRef = doc(db, "receipt_links", userId);
+        await updateDoc(linkRef, { assignmentsComplete: true });
       }
 
       alert("Assignments submitted successfully!");
@@ -76,6 +113,9 @@ export default function ReceiptAssign() {
       }
     }
   };
+
+  // Combined items + summary if you ever choose to assign summary items too:
+  // const allItems = [...items, ...summary];
 
   return (
     <div className="pt-28 px-6 min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
@@ -122,7 +162,9 @@ export default function ReceiptAssign() {
           </button>
         </div>
       ) : (
-        <p className="text-gray-600">No items available for assignment.</p>
+        <p className="text-gray-600">
+          No items available for assignment. Please check your link or receipt data.
+        </p>
       )}
     </div>
   );

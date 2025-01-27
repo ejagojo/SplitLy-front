@@ -1,10 +1,19 @@
 import React, { useState, useEffect } from "react";
-import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  getDoc,
+  onSnapshot
+} from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 const db = getFirestore();
 const auth = getAuth();
 
+/**
+ * Separates "summary" lines (e.g., Tax, Tip, Subtotal, Total) from normal items.
+ */
 function separateSummaryFromItems(allItems) {
   const summaryKeywords = ["Tax", "Tip", "Subtotal", "Total", "Summary Item"];
   const normalItems = [];
@@ -31,34 +40,75 @@ export default function ReceiptAnalysis() {
   const [messengerLink, setMessengerLink] = useState("");
   const [finalBreakdown, setFinalBreakdown] = useState([]);
 
+  // Load items + summary from localStorage, including Tax & Tip
   useEffect(() => {
     const storedItemsJSON = localStorage.getItem("receiptItems");
+    let normalItems = [];
+    let summaryItems = [];
+
     if (storedItemsJSON) {
       try {
         const parsedItems = JSON.parse(storedItemsJSON);
-        const { normalItems, summaryItems } = separateSummaryFromItems(
-          parsedItems
-        );
-        setItems(normalItems);
-        setSummary(summaryItems);
+        const { normalItems: nm, summaryItems: sm } =
+          separateSummaryFromItems(parsedItems);
+        normalItems = nm;
+        summaryItems = sm;
       } catch (err) {
         console.error("Error parsing receipt items:", err);
       }
     }
+
+    const taxValue = parseFloat(localStorage.getItem("receiptTax")) || 0;
+    const tipValue = parseFloat(localStorage.getItem("receiptTip")) || 0;
+
+    if (taxValue > 0) {
+      summaryItems.push({ name: "Tax", price: taxValue, qty: "1" });
+    }
+    if (tipValue > 0) {
+      summaryItems.push({ name: "Tip", price: tipValue, qty: "1" });
+    }
+
+    setItems(normalItems);
+    setSummary(summaryItems);
   }, []);
 
+  // Listen for assignmentsComplete at receipt_links/{user.uid}
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const docRef = doc(db, "receipt_links", user.uid);
+    const unsubscribe = onSnapshot(docRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        if (data.assignmentsComplete === true) {
+          alert("All participants have completed their assignments!");
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Generate the messenger link (receipt_links/{user.uid}), resetting assignmentsComplete
   const handleGenerateMessengerLink = async () => {
     try {
       const user = auth.currentUser;
       if (!user) throw new Error("User not authenticated.");
 
-      const docRef = doc(db, "receipt_links", user.uid);
-      const receiptData = { items, summary, createdAt: new Date().toISOString() };
+      const receiptData = {
+        items,
+        summary,
+        createdAt: new Date().toISOString(),
+        assignmentsComplete: false
+      };
 
-      await setDoc(docRef, receiptData);
+      const linkDocRef = doc(db, "receipt_links", user.uid);
+      await setDoc(linkDocRef, receiptData);
 
       const link = `${window.location.origin}/receipt/assign/${user.uid}`;
       setMessengerLink(link);
+
       alert("Messenger link generated successfully!");
     } catch (err) {
       if (err.code === "permission-denied") {
@@ -70,34 +120,43 @@ export default function ReceiptAnalysis() {
     }
   };
 
+  // Retrieves assigned items from receipt_assignments/{user.uid} to compute final owed amounts
   const handleCalculateBreakdown = async () => {
     try {
-      const totalTax = summary.find((s) => s.name.toLowerCase().includes("tax"))?.price || 0;
-      const totalTip = summary.find((s) => s.name.toLowerCase().includes("tip"))?.price || 0;
-      const totalSummary = parseFloat(totalTax) + parseFloat(totalTip);
-
       const user = auth.currentUser;
       if (!user) throw new Error("User not authenticated.");
 
-      const docRef = doc(db, "receipt_assignments", user.uid);
-      const docSnap = await getDoc(docRef);
+      const assignmentDocRef = doc(db, "receipt_assignments", user.uid);
+      const assignmentSnap = await getDoc(assignmentDocRef);
 
-      if (!docSnap.exists()) {
-        alert("No assignments found. Please ensure participants have assigned items.");
+      if (!assignmentSnap.exists()) {
+        alert("No assignments found. Participants have not assigned items yet.");
         return;
       }
 
-      const assignments = docSnap.data().assignments;
+      const assignments = assignmentSnap.data().assignments;
+      const sumOfItemPrices = items.reduce((acc, i) => acc + parseFloat(i.price || 0), 0);
+
+      const taxItem = summary.find((s) => s.name.toLowerCase().includes("tax"));
+      const tipItem = summary.find((s) => s.name.toLowerCase().includes("tip"));
+      const totalTax = parseFloat(taxItem?.price || 0);
+      const totalTip = parseFloat(tipItem?.price || 0);
+      const totalSummary = totalTax + totalTip;
 
       const totals = assignments.map((assignment) => {
-        const itemTotal = assignment.items.reduce(
-          (acc, item) => acc + parseFloat(item.price) * parseInt(item.qty, 10),
-          0
-        );
-        const share = (itemTotal / items.reduce((acc, i) => acc + parseFloat(i.price), 0)) * totalSummary;
+        const assignedItem = assignment.item || {};
+        const qty = parseInt(assignedItem.qty || "1", 10);
+        const price = parseFloat(assignedItem.price || "0");
+        const itemTotal = qty * price;
+
+        let share = 0;
+        if (sumOfItemPrices > 0) {
+          share = (itemTotal / sumOfItemPrices) * totalSummary;
+        }
+
         return {
           userName: assignment.userName,
-          totalOwed: itemTotal + share,
+          totalOwed: itemTotal + share
         };
       });
 
@@ -113,6 +172,37 @@ export default function ReceiptAnalysis() {
     }
   };
 
+  // Copy link helper
+  const handleCopyLink = () => {
+    if (!messengerLink) return;
+    navigator.clipboard
+      .writeText(messengerLink)
+      .then(() => {
+        alert("Link copied to clipboard!");
+      })
+      .catch((err) => {
+        console.error("Failed to copy link:", err);
+      });
+  };
+
+  // Optional share link helper (for browsers supporting the Web Share API)
+  const handleShareLink = () => {
+    if (!messengerLink) return;
+
+    if (navigator.share) {
+      navigator
+        .share({
+          title: "Split Receipt",
+          text: "Assign your items in this shared receipt!",
+          url: messengerLink
+        })
+        .catch((err) => console.error("Sharing failed:", err));
+    } else {
+      alert("Sharing not supported by your browser, but the link was copied!");
+      handleCopyLink();
+    }
+  };
+
   return (
     <div className="pt-28 px-6 min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
       <h1 className="text-2xl font-bold mb-4">Receipt Breakdown</h1>
@@ -123,6 +213,7 @@ export default function ReceiptAnalysis() {
             <span>🧾</span> Analyzed Receipt Details
           </h2>
 
+          {/* Display normal items */}
           {items.length > 0 && (
             <div className="mb-6 p-4 bg-purple-50 rounded border border-purple-200">
               <h3 className="text-md font-bold mb-2 text-purple-700">🛒 Items</h3>
@@ -147,6 +238,7 @@ export default function ReceiptAnalysis() {
             </div>
           )}
 
+          {/* Buttons for generating link and final breakdown */}
           <div className="mt-6 flex flex-col md:flex-row gap-4">
             <button
               onClick={handleGenerateMessengerLink}
@@ -162,21 +254,60 @@ export default function ReceiptAnalysis() {
             </button>
           </div>
 
+          {/* Show the newly generated link in an enhanced card with copy/share */}
           {messengerLink && (
             <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded">
-              <h4 className="text-md font-bold text-blue-700">Messenger Link</h4>
-              <p>{messengerLink}</p>
+              <h4 className="text-md font-bold text-blue-700 mb-2">
+                Messenger Link
+              </h4>
+              <div className="bg-white border border-gray-200 rounded p-3 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                <input
+                  type="text"
+                  readOnly
+                  value={messengerLink}
+                  className="flex-1 bg-gray-50 border border-gray-200 rounded px-2 py-1 text-sm text-gray-700 focus:outline-none cursor-text"
+                  onClick={handleCopyLink}
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCopyLink}
+                    className="px-3 py-1 bg-gray-300 text-gray-800 text-sm font-semibold rounded hover:bg-gray-400 transition"
+                  >
+                    Copy Link
+                  </button>
+                  <button
+                    onClick={handleShareLink}
+                    className="px-3 py-1 bg-blue-500 text-white text-sm font-semibold rounded hover:bg-blue-600 transition"
+                  >
+                    Share Link
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
+          {/* Improved Final Breakdown: card-style display */}
           {finalBreakdown.length > 0 && (
             <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded">
               <h4 className="text-md font-bold text-green-700">Final Breakdown</h4>
-              <ul>
+              <div className="grid gap-4 mt-4 sm:grid-cols-2 lg:grid-cols-3">
                 {finalBreakdown.map((person, idx) => (
-                  <li key={idx}>{person.userName}: ${person.totalOwed.toFixed(2)}</li>
+                  <div
+                    key={idx}
+                    className="bg-white p-4 rounded shadow border border-green-200 flex flex-col gap-2"
+                  >
+                    <h5 className="text-lg font-semibold text-gray-700 capitalize">
+                      {person.userName}
+                    </h5>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Owes:</span>{" "}
+                      <span className="text-gray-800">
+                        ${person.totalOwed.toFixed(2)}
+                      </span>
+                    </p>
+                  </div>
                 ))}
-              </ul>
+              </div>
             </div>
           )}
         </div>
