@@ -6,24 +6,47 @@ import {
 } from "firebase/auth";
 import { Link, useNavigate } from "react-router-dom";
 import { auth } from "../services/firebase";
+import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore"; // Firestore imports
 
-/**
- * Login component that allows users to sign in with
- * email/password or Google, now with minor 
- * background animation for consistency.
- */
+const db = getFirestore(); // Firestore instance
+
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
 
-  // Google Auth provider instance
   const googleProvider = new GoogleAuthProvider();
+
+  // Add user to Firestore
+  const addUserToFirestore = async (user) => {
+    const userDoc = doc(db, "users", user.uid);
+    const docSnapshot = await getDoc(userDoc);
+
+    if (!docSnapshot.exists()) {
+      // Create new user document if it doesn't exist
+      await setDoc(userDoc, {
+        uid: user.uid,
+        email: user.email,
+        lastLogin: new Date().toISOString(),
+      });
+    } else {
+      // Update last login timestamp
+      await setDoc(
+        userDoc,
+        { lastLogin: new Date().toISOString() },
+        { merge: true }
+      );
+    }
+  };
 
   // Handle email/password login
   const handleLogin = async () => {
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+
+      // Add user to Firestore
+      await addUserToFirestore(userCredential.user);
+
       navigate("/dashboard");
     } catch (error) {
       alert("Login failed: " + error.message);
@@ -34,7 +57,10 @@ export default function Login() {
   const handleGoogleLogin = async () => {
     try {
       const result = await signInWithPopup(auth, googleProvider);
-      console.log("Google Sign-in successful. User:", result.user);
+
+      // Add user to Firestore
+      await addUserToFirestore(result.user);
+
       navigate("/dashboard");
     } catch (error) {
       alert("Google login failed: " + error.message);

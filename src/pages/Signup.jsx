@@ -1,17 +1,10 @@
-/***************************************
- * File: Signup.jsx
- * Location: /src/pages/Signup.jsx
- * 
- * Changes Made:
- * 1. Added a floating background shape 
- *    to maintain an animated, lively design.
- * 2. Preserved the original sign-up logic.
- ***************************************/
-
 import { useState } from "react";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { Link, useNavigate } from "react-router-dom";
 import { auth } from "../services/firebase";
+import { getFirestore, doc, setDoc } from "firebase/firestore"; // Firestore imports
+
+const db = getFirestore(); // Firestore instance
 
 export default function Signup() {
   const [email, setEmail] = useState("");
@@ -25,7 +18,16 @@ export default function Signup() {
       return;
     }
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+
+      // Add the authenticated user to Firestore
+      const user = userCredential.user;
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
+        email: user.email,
+        createdAt: new Date().toISOString(),
+      });
+
       navigate("/dashboard");
     } catch (error) {
       alert("Signup failed: " + error.message);

@@ -12,6 +12,7 @@ import InteractiveMessenger from "./pages/InteractiveMessenger";
 import FinalCalculation from "./pages/FinalCalculation";
 import ReceiptHistory from "./pages/ReceiptHistory";
 import ConnectedAccounts from "./pages/ConnectedAccounts";
+import InputReceipt from "./pages/InputReceipt";
 
 import "./App.css";
 
@@ -29,6 +30,7 @@ function App() {
 
         {/* Primary application routes */}
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/receipt/input-receipt" element={<InputReceipt />} />
         <Route path="/receipt/upload" element={<UploadReceipt />} />
         <Route path="/receipt/history" element={<ReceiptHistory />} />
         <Route path="/receipt/analysis" element={<ReceiptAnalysis />} />
