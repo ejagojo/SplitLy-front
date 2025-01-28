@@ -1,3 +1,7 @@
+/**
+ * File: /src/pages/ReceiptAssign.jsx
+ */
+
 import React, { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -20,7 +24,10 @@ function isAllItemsAssigned(items, assignments) {
   // Each item must have at least one contributor with quantity > 0
   return items.every((_, index) => {
     const contributors = assignments[index] || [];
-    const assignedQty = contributors.reduce((sum, c) => sum + parseInt(c.quantity || "0", 10), 0);
+    const assignedQty = contributors.reduce(
+      (sum, c) => sum + parseInt(c.quantity || "0", 10),
+      0
+    );
     return assignedQty > 0; // or sum up to item.qty if exact coverage is required
   });
 }
@@ -125,7 +132,10 @@ export default function ReceiptAssign() {
       // Temporarily set the new data
       contributors[contribIndex] = newData;
       // Now verify if total assigned <= maxQty
-      const sumOfContribs = contributors.reduce((sum, c) => sum + parseInt(c.quantity || "0", 10), 0);
+      const sumOfContribs = contributors.reduce(
+        (sum, c) => sum + parseInt(c.quantity || "0", 10),
+        0
+      );
       if (sumOfContribs > maxQty) {
         alert(`Cannot exceed total quantity of ${maxQty} for this item.`);
         // Revert to old data
@@ -151,8 +161,9 @@ export default function ReceiptAssign() {
   };
 
   /**
-   * Submit the final assignments to Firestore at `receipt_assignments/{userId}`.
-   * If all items are assigned, we mark `assignmentsComplete = true`.
+   * (IMPROVEMENT) Validate that no contributor is missing a quantity before submission.
+   * If all good, submit the assignments to Firestore at `receipt_assignments/{userId}`.
+   * If all items are fully assigned, we mark `assignmentsComplete = true`.
    */
   const handleSubmitAssignments = async () => {
     try {
@@ -160,6 +171,17 @@ export default function ReceiptAssign() {
         item,
         contributors: assignments[idx] || []
       }));
+
+      // Block submission if any contributor has no quantity
+      const hasEmptyQuantities = assignmentPayload.some((ap) =>
+        ap.contributors.some((c) => !c.quantity || parseInt(c.quantity, 10) < 1)
+      );
+      if (hasEmptyQuantities) {
+        alert(
+          "Please ensure all contributors have a valid quantity before submitting."
+        );
+        return;
+      }
 
       const assignmentRef = doc(db, "receipt_assignments", userId);
       const docSnap = await getDoc(assignmentRef);
@@ -209,19 +231,23 @@ export default function ReceiptAssign() {
         </h2>
         <ul className="list-disc list-inside text-sm space-y-1">
           <li>
-            Host adds or inputs contributor names (e.g., "Alice, Bob, Charlie") below.
+            Host adds or inputs contributor names (e.g., "Alice, Bob, Charlie")
+            below.
           </li>
           <li>
-            Each item has a total quantity. Contributors must claim how many units they consumed.
+            Each item has a total quantity. Contributors must claim how many
+            units they consumed.
           </li>
           <li>
             The total assigned units can’t exceed the item’s total quantity.
           </li>
           <li>
-            You can add multiple contributors for each item if multiple people shared it.
+            You can add multiple contributors for each item if multiple people
+            shared it.
           </li>
           <li>
-            Once everyone is done, click “Submit Assignments” so the host is notified.
+            Once everyone is done, click “Submit Assignments” so the host is
+            notified.
           </li>
         </ul>
       </div>
@@ -234,7 +260,8 @@ export default function ReceiptAssign() {
           Who will be contributing to this bill?
         </h2>
         <p className="text-sm text-gray-600 mb-3">
-          Enter comma-separated names below (e.g. "Alice, Bob, Charlie"), then click "Save Names."
+          Enter comma-separated names below (e.g. "Alice, Bob, Charlie"), then
+          click "Save Names."
         </p>
         <div className="flex flex-col md:flex-row gap-3">
           <input
@@ -264,16 +291,23 @@ export default function ReceiptAssign() {
       */}
       {items.length > 0 ? (
         <div className="bg-white p-5 rounded shadow">
-          <h2 className="text-lg font-semibold mb-4 text-gray-800">Receipt Items</h2>
+          <h2 className="text-lg font-semibold mb-4 text-gray-800">
+            Receipt Items
+          </h2>
 
           {items.map((item, index) => (
-            <div key={index} className="mb-6 border-b pb-4 last:border-none last:pb-0">
+            <div
+              key={index}
+              className="mb-6 border-b pb-4 last:border-none last:pb-0"
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-bold text-gray-800">
                     {item.name} (Qty: {item.qty})
                   </p>
-                  <p className="text-sm text-gray-600">${item.price} each</p>
+                  <p className="text-sm text-gray-600">
+                    ${item.price} each
+                  </p>
                 </div>
                 <button
                   onClick={() => handleAddContributor(index)}
@@ -294,7 +328,9 @@ export default function ReceiptAssign() {
                     <select
                       className="flex-1 bg-white border border-gray-300 rounded px-2 py-1 text-sm"
                       value={contrib.userName}
-                      onChange={(e) => handleContributorChange(index, cIdx, "userName", e.target.value)}
+                      onChange={(e) =>
+                        handleContributorChange(index, cIdx, "userName", e.target.value)
+                      }
                     >
                       <option value="">-- Select Person --</option>
                       {possibleContributors.map((person) => (
@@ -311,7 +347,9 @@ export default function ReceiptAssign() {
                       placeholder="Qty"
                       className="w-24 bg-white border border-gray-300 rounded px-2 py-1 text-sm"
                       value={contrib.quantity}
-                      onChange={(e) => handleContributorChange(index, cIdx, "quantity", e.target.value)}
+                      onChange={(e) =>
+                        handleContributorChange(index, cIdx, "quantity", e.target.value)
+                      }
                     />
 
                     <button
@@ -336,7 +374,8 @@ export default function ReceiptAssign() {
         </div>
       ) : (
         <p className="text-gray-600 mt-4">
-          No items available for assignment. Please check your link or receipt data.
+          No items available for assignment. Please check your link or receipt
+          data.
         </p>
       )}
     </div>

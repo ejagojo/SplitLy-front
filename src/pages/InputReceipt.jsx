@@ -1,7 +1,9 @@
+/**
+ * File: /src/pages/InputReceipt.jsx
+ */
+
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-
-// TODO: Automaticaly adjust the total based on the added items and the added tax and tip
 
 // Predefined item templates for auto-suggestions
 const predefinedItems = [
@@ -9,18 +11,22 @@ const predefinedItems = [
   { qty: "1", name: "Sandwich", price: "5.00" },
   { qty: "1", name: "Salad", price: "4.50" },
   { qty: "1", name: "Juice", price: "3.00" },
-  { qty: "1", name: "Buffalo Wild Wings", price: "5.00"}
+  { qty: "1", name: "Buffalo Wild Wings", price: "5.00" }
 ];
 
 /**
- * This component allows users to enter regular items plus optional Tax and Tip fields
- * without forcing them to treat those as separate items in the list.
+ * InputReceipt Component
+ * Allows users to provide a name/label for the receipt, manually input items,
+ * optionally add Tax and Tip, and then saves all data to localStorage before
+ * navigating to the analysis page.
  */
 export default function InputReceipt() {
+  // New state for the "Receipt Name"
+  const [receiptName, setReceiptName] = useState("");
+
+  // Existing states for items, search term, etc.
   const [items, setItems] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
-
-  // New states for handling Tax & Tip
   const [receiptTax, setReceiptTax] = useState("");
   const [receiptTip, setReceiptTip] = useState("");
 
@@ -31,58 +37,79 @@ export default function InputReceipt() {
     item.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Add a predefined item to the list
+  /**
+   * handleAddPredefinedItem: add a predefined item to the list and clear search
+   */
   const handleAddPredefinedItem = (item) => {
     setItems((prevItems) => [...prevItems, item]);
-    setSearchTerm(""); // Clear the search field after selection
+    setSearchTerm("");
   };
 
-  // Add a blank item for full manual entry
+  /**
+   * handleAddItem: add a blank item for manual entry
+   */
   const handleAddItem = () => {
     setItems((prevItems) => [
       ...prevItems,
-      { qty: "1", name: "New Item", price: "0.00" },
+      { qty: "1", name: "New Item", price: "0.00" }
     ]);
   };
 
-  // Handle changes to a specific item's fields
+  /**
+   * handleItemChange: update a specific item field (qty, name, or price)
+   */
   const handleItemChange = (index, field, value) => {
     setItems((prevItems) => {
-      const updatedItems = [...prevItems];
-      updatedItems[index] = { ...updatedItems[index], [field]: value };
-      return updatedItems;
+      const updated = [...prevItems];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
     });
   };
 
-  // Remove an item from the list by index
+  /**
+   * handleRemoveItem: remove an item from the list by index
+   */
   const handleRemoveItem = (index) => {
     setItems((prevItems) => {
-      const updatedItems = [...prevItems];
-      updatedItems.splice(index, 1);
-      return updatedItems;
+      const updated = [...prevItems];
+      updated.splice(index, 1);
+      return updated;
     });
   };
 
-  // Submit items and navigate to the ReceiptAnalysis page
+  /**
+   * handleSubmit: validate and then save all data to localStorage before
+   * navigating to the ReceiptAnalysis page
+   */
   const handleSubmit = () => {
+    // Basic validations
+    if (!receiptName.trim()) {
+      alert("Please enter a valid name for your receipt before submitting.");
+      return;
+    }
     if (items.length === 0) {
       alert("Please add at least one item before submitting.");
       return;
     }
 
-    // Convert to numeric safely
-    const taxNumber = parseFloat(receiptTax) || 0;
-    const tipNumber = parseFloat(receiptTip) || 0;
+    // Convert Tax & Tip to numeric safely
+    let taxNumber = parseFloat(receiptTax) || 0;
+    let tipNumber = parseFloat(receiptTip) || 0;
+    if (taxNumber < 0) {
+      taxNumber = 0; // prevent negative tax
+    }
+    if (tipNumber < 0) {
+      tipNumber = 0; // prevent negative tip
+    }
 
-    // Save items to localStorage for analysis
+    // Save to localStorage
+    localStorage.setItem("receiptName", receiptName.trim());
     localStorage.setItem("receiptItems", JSON.stringify(items));
-
-    // Save the tax and tip so other pages can use them as needed
     localStorage.setItem("receiptTax", taxNumber.toString());
     localStorage.setItem("receiptTip", tipNumber.toString());
 
-    alert("Items and Tax/Tip saved successfully!");
-    navigate("/receipt/analysis"); // Navigate to ReceiptAnalysis page
+    alert("Receipt Name, Items, and Tax/Tip saved successfully!");
+    navigate("/receipt/analysis"); // Navigate to the ReceiptAnalysis page
   };
 
   return (
@@ -90,10 +117,24 @@ export default function InputReceipt() {
       {/* Header */}
       <h1 className="text-2xl font-bold mb-4">Input Receipt</h1>
       <p className="text-gray-600 mb-6">
-        Manually input your receipt details below. Search for common items, use
-        suggestions, or add your custom entries. Once done, click "Submit" to
-        save your receipt, along with optional Tax and Tip values.
+        Provide a name for your receipt, then input or search for items. Finally,
+        add optional Tax/Tip. When done, click "Submit" to save everything
+        before proceeding to the analysis page.
       </p>
+
+      {/* Receipt Name Field */}
+      <div className="mb-6 w-full max-w-3xl bg-white p-5 rounded shadow">
+        <label className="block text-lg font-medium text-gray-700 mb-2">
+          Receipt Name / Label
+        </label>
+        <input
+          type="text"
+          className="w-full bg-purple-50 border border-purple-200 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-400"
+          placeholder="e.g. Dinner at Joe's"
+          value={receiptName}
+          onChange={(e) => setReceiptName(e.target.value)}
+        />
+      </div>
 
       {/* Search and Suggestions Section */}
       <div className="mb-6">
@@ -219,12 +260,15 @@ export default function InputReceipt() {
           <span>💰</span> Additional Charges
         </h3>
         <p className="text-sm text-gray-500 mb-4">
-          If applicable, enter your Tax and Tip amounts here.
+          If applicable, enter your Tax and Tip amounts here. Negative values
+          will be treated as zero.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Tax Field */}
           <div>
-            <label className="block font-medium text-gray-700 mb-1">Tax</label>
+            <label className="block font-medium text-gray-700 mb-1">
+              Tax
+            </label>
             <input
               type="number"
               step="0.01"
@@ -237,7 +281,9 @@ export default function InputReceipt() {
 
           {/* Tip Field */}
           <div>
-            <label className="block font-medium text-gray-700 mb-1">Tip</label>
+            <label className="block font-medium text-gray-700 mb-1">
+              Tip
+            </label>
             <input
               type="number"
               step="0.01"
