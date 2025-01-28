@@ -14,6 +14,7 @@ import ReceiptHistory from "./pages/ReceiptHistory";
 import ReceiptAssign from "./pages/ReceiptAssign";
 import ConnectedAccounts from "./pages/ConnectedAccounts";
 import InputReceipt from "./pages/InputReceipt";
+import MySocialsPortal from "./pages/MySocialsPortal";
 
 import "./App.css";
 
@@ -39,6 +40,7 @@ function App() {
         <Route path="/interactive-messenger" element={<InteractiveMessenger />} />
         <Route path="/final-calculation" element={<FinalCalculation />} />
         <Route path="/payments/accounts" element={<ConnectedAccounts />} />
+        <Route path="/mysocials/:portalId" element={<MySocialsPortal />} />
       </Routes>
     </>
   );
