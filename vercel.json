@@ -1,5 +1,12 @@
 {
   "rewrites": [
-    { "source": "/receipt/assign/(.*)", "destination": "/" }
+    {
+      "source": "/receipt/assign/(.*)",
+      "destination": "/"
+    },
+    {
+      "source": "/mysocials/(.*)",
+      "destination": "/"
+    }
   ]
 }
