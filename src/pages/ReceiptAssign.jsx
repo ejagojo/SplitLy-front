@@ -12,50 +12,46 @@ const db = getFirestore();
 
 /**
  * Checks if every item in `items` has a valid set of contributors,
- * covering the entire item quantity with no leftover. If so, we mark them done.
+ * covering at least some portion of the item’s total quantity (if you choose).
+ * You can also enforce an exact match (sum of contributor qty = item’s qty) if needed.
  */
 function isAllItemsAssigned(items, assignments) {
-  // If no items exist => can't mark them all assigned
-  if (!items.length) return false;
-
-  // Each item must have at least one contributor with quantity > 0.
-  // (Optionally verify sum of contributor qty == item.qty if you want a stricter check.)
+  if (!items.length) return false; // No items => nothing to assign
+  // Each item must have at least one contributor with quantity > 0
   return items.every((_, index) => {
     const contributors = assignments[index] || [];
     const assignedQty = contributors.reduce((sum, c) => sum + parseInt(c.quantity || "0", 10), 0);
-    return assignedQty > 0;
+    return assignedQty > 0; // or sum up to item.qty if exact coverage is required
   });
 }
 
 export default function ReceiptAssign() {
   const { userId } = useParams(); // The host user’s ID from the URL
-
-  // Items + summary from Firestore’s "receipt_links/{userId}"
   const [items, setItems] = useState([]);
   const [summary, setSummary] = useState([]);
 
   /**
-   * For each item index, we hold an array of contributor objects:
-   * assignments[index] = [
-   *   { userName: "Alice", quantity: "2" },
-   *   { userName: "Bob", quantity: "3" }
-   * ]
+   * For each item index, we maintain an array of contributor objects:
+   *   assignments[index] = [
+   *     { userName: "Alice", quantity: "2" },
+   *     { userName: "Bob", quantity: "3" }
+   *   ]
    */
   const [assignments, setAssignments] = useState([]);
 
   /**
-   * The list of possible contributor names, as specified by the host.
+   * Possible contributor names, set by the host in the UI, e.g. ["Alice", "Bob", "Charlie"].
    */
   const [possibleContributors, setPossibleContributors] = useState([]);
 
   /**
-   * Temporary input for the host to add names (comma-separated).
+   * Temporary input for capturing new contributor names (comma-separated).
    */
   const [namesInput, setNamesInput] = useState("");
 
   /**
-   * Fetch data from Firestore (`receipt_links/{userId}`) for items + summary.
-   * Initialize assignments with empty arrays matching the item count.
+   * Fetch the receipt data from Firestore: `receipt_links/{userId}`.
+   * Initialize `assignments` with an empty array for each item.
    */
   useEffect(() => {
     const fetchReceiptData = async () => {
@@ -67,9 +63,8 @@ export default function ReceiptAssign() {
           const { items, summary } = docSnap.data();
           setItems(items || []);
           setSummary(summary || []);
-          // Create a blank array of contributors for each item
-          const arrayOfContributors = (items || []).map(() => []);
-          setAssignments(arrayOfContributors);
+          const blankAssignments = (items || []).map(() => []);
+          setAssignments(blankAssignments);
         } else {
           alert("No receipt data found for this link.");
         }
@@ -83,8 +78,7 @@ export default function ReceiptAssign() {
   }, [userId]);
 
   /**
-   * Host inputs a list of names (comma-separated).
-   * Once "Save Names" is clicked, parse them into an array and store.
+   * Parse comma-separated names and store them in `possibleContributors`.
    */
   const handleSaveNames = () => {
     const splitNames = namesInput
@@ -96,7 +90,7 @@ export default function ReceiptAssign() {
   };
 
   /**
-   * Add a new contributor object to item at 'index': { userName: '', quantity: '' }
+   * Add a new contributor record to the item at `index`, defaulting to empty fields.
    */
   const handleAddContributor = (index) => {
     setAssignments((prev) => {
@@ -107,69 +101,62 @@ export default function ReceiptAssign() {
   };
 
   /**
-   * Update a contributor’s fields (userName or quantity).
-   * Enforce these rules:
-   * 1) quantity >= 1
-   * 2) sum of contributor quantities ≤ the item’s total qty
+   * Enforce these rules when changing a contributor’s quantity:
+   *  - quantity >= 1
+   *  - sum of all contributor quantities <= the item’s total quantity
    */
   const handleContributorChange = (itemIndex, contribIndex, field, newValue) => {
     setAssignments((prev) => {
       const updated = [...prev];
       const contributors = [...updated[itemIndex]];
-      const oldContributor = contributors[contribIndex];
-      const itemQty = parseInt(items[itemIndex]?.qty || "1", 10);
+      const oldData = contributors[contribIndex];
+      const maxQty = parseInt(items[itemIndex]?.qty || "1", 10);
 
-      // We clone the contributor and update the relevant field
-      const newContributor = { ...oldContributor, [field]: newValue };
+      const newData = { ...oldData, [field]: newValue };
 
-      // If the user is editing quantity, enforce minimum 1
       if (field === "quantity") {
         let parsedQty = parseInt(newValue, 10);
         if (isNaN(parsedQty) || parsedQty < 1) {
-          parsedQty = 1; // clamp to 1
+          parsedQty = 1;
         }
-        newContributor.quantity = parsedQty.toString();
+        newData.quantity = parsedQty.toString();
       }
 
-      // Temporarily replace the old contributor with the new one
-      contributors[contribIndex] = newContributor;
-
-      // Now check if the sum of all contributor quantities <= itemQty
+      // Temporarily set the new data
+      contributors[contribIndex] = newData;
+      // Now verify if total assigned <= maxQty
       const sumOfContribs = contributors.reduce((sum, c) => sum + parseInt(c.quantity || "0", 10), 0);
-      if (sumOfContribs > itemQty) {
-        // Revert: remove the newly updated quantity or show an alert
-        alert(`Cannot exceed total quantity of ${itemQty} for this item.`);
-        // restore old value
-        contributors[contribIndex] = oldContributor;
+      if (sumOfContribs > maxQty) {
+        alert(`Cannot exceed total quantity of ${maxQty} for this item.`);
+        // Revert to old data
+        contributors[contribIndex] = oldData;
       } else {
-        // Otherwise, keep the new contributor
         updated[itemIndex] = contributors;
       }
-
       return updated;
     });
   };
 
   /**
-   * Remove a contributor from a specific item’s contributor array.
+   * Remove a contributor from the list for a specific item.
    */
   const handleRemoveContributor = (itemIndex, contribIndex) => {
     setAssignments((prev) => {
       const updated = [...prev];
-      const contributors = [...updated[itemIndex]];
-      contributors.splice(contribIndex, 1);
-      updated[itemIndex] = contributors;
+      const itemContributors = [...updated[itemIndex]];
+      itemContributors.splice(contribIndex, 1);
+      updated[itemIndex] = itemContributors;
       return updated;
     });
   };
 
   /**
-   * Submits assignments to Firestore at `receipt_assignments/{userId}`.
-   * If all items are assigned, set `assignmentsComplete = true`.
+   * Submit the final assignments to Firestore at `receipt_assignments/{userId}`.
+   * If all items are assigned, we mark `assignmentsComplete = true`.
    */
   const handleSubmitAssignments = async () => {
     try {
-      const assignmentData = items.map((item, idx) => ({
+      const assignmentPayload = items.map((item, idx) => ({
         item,
         contributors: assignments[idx] || []
       }));
@@ -180,18 +167,18 @@ export default function ReceiptAssign() {
       const now = new Date().toISOString();
       if (docSnap.exists()) {
         await updateDoc(assignmentRef, {
-          assignments: assignmentData,
+          assignments: assignmentPayload,
           updatedAt: now
         });
       } else {
         await setDoc(assignmentRef, {
-          assignments: assignmentData,
+          assignments: assignmentPayload,
           createdAt: now,
           updatedAt: now
         });
       }
 
-      // Check if items are fully assigned
+      // If everything is assigned, notify the host in `receipt_links`
       if (isAllItemsAssigned(items, assignments)) {
         const linkRef = doc(db, "receipt_links", userId);
         await updateDoc(linkRef, { assignmentsComplete: true });
@@ -212,7 +199,36 @@ export default function ReceiptAssign() {
     <div className="pt-28 px-6 min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
       <h1 className="text-2xl font-bold mb-4">Assign Receipt Items</h1>
 
-      {/* 1) Host user enters list of names for potential contributors */}
+      {/* 
+        Additional Instructions:
+        This block helps participants and the host understand how to handle item assignments
+      */}
+      <div className="mb-6 bg-blue-50 border border-blue-200 rounded p-4 text-gray-700">
+        <h2 className="text-md font-semibold text-blue-700 mb-2">
+          Assignment Guidelines
+        </h2>
+        <ul className="list-disc list-inside text-sm space-y-1">
+          <li>
+            Host adds or inputs contributor names (e.g., "Alice, Bob, Charlie") below.
+          </li>
+          <li>
+            Each item has a total quantity. Contributors must claim how many units they consumed.
+          </li>
+          <li>
+            The total assigned units can’t exceed the item’s total quantity.
+          </li>
+          <li>
+            You can add multiple contributors for each item if multiple people shared it.
+          </li>
+          <li>
+            Once everyone is done, click “Submit Assignments” so the host is notified.
+          </li>
+        </ul>
+      </div>
+
+      {/* 
+        1) Host user enters list of names for potential contributors 
+      */}
       <div className="mb-6 bg-white p-4 rounded shadow">
         <h2 className="text-lg font-semibold text-gray-800 mb-2">
           Who will be contributing to this bill?
@@ -243,7 +259,9 @@ export default function ReceiptAssign() {
         )}
       </div>
 
-      {/* 2) Display items and let user assign contributors from the saved names */}
+      {/* 
+        2) Display items and let user assign contributors from the saved names 
+      */}
       {items.length > 0 ? (
         <div className="bg-white p-5 rounded shadow">
           <h2 className="text-lg font-semibold mb-4 text-gray-800">Receipt Items</h2>

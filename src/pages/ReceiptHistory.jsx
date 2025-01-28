@@ -1,18 +1,26 @@
+/**
+ * File: /src/pages/ReceiptHistory.jsx
+ */
+
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
+// NEW: Firestore + Auth imports
+import { getFirestore, collection, query, where, getDocs } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
+
 /**
  * ReceiptHistory component:
- * - Fetches a list of receipts (currently mocked).
+ * - Fetches a list of receipts from Firestore.
+ * - Handles potential fetch errors gracefully by falling back to an empty array or showing a message.
  * - Allows filtering by status (e.g., all, pending, analyzed).
- * - Displays the results in a styled table.
+ * - Displays results in a styled table.
  * - "View Details" navigates to /receipt/analysis for deeper review.
- * 
- * In a real implementation, you would:
- * 1. Call your backend (Spring Boot) to fetch the user's receipts
- *    via fetch or Axios in `fetchReceipts()`.
- * 2. Store or update the data in state, apply filters, etc.
- * 3. Potentially support searching by name/date.
+ *
+ * Implementation Notes:
+ * 1) This version replaces the previous `fetch` call with Firestore logic to fetch documents
+ *    from the "receipts" collection, where `userId` matches the authenticated user's UID.
+ * 2) The rest of the logic (filtering, rendering) remains unchanged.
  */
 
 export default function ReceiptHistory() {
@@ -20,74 +28,81 @@ export default function ReceiptHistory() {
   const [filteredReceipts, setFilteredReceipts] = useState([]);
   const [filterStatus, setFilterStatus] = useState("all");
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState(null); // Track error state
 
   const navigate = useNavigate();
 
-  // Simulate fetching from backend with a short delay
+  // NEW: Access Firestore & Auth
+  const db = getFirestore();
+  const auth = getAuth();
+
+  /**
+   * Revised fetch function to retrieve receipts from Firestore, filtered by the current user.
+   */
   const fetchReceipts = async () => {
     setLoading(true);
-    // Mock data simulating what might come from the backend
-    const mockData = [
-      {
-        id: 1,
-        name: "Dinner at Italian Bistro",
-        date: "2025-01-15",
-        status: "pending",
-        total: 74.23,
-      },
-      {
-        id: 2,
-        name: "Office Supplies",
-        date: "2025-01-10",
-        status: "analyzed",
-        total: 123.45,
-      },
-      {
-        id: 3,
-        name: "Groceries",
-        date: "2025-01-08",
-        status: "pending",
-        total: 89.99,
-      },
-      {
-        id: 4,
-        name: "Birthday Party Supplies",
-        date: "2024-12-28",
-        status: "analyzed",
-        total: 145.0,
-      },
-    ];
+    setErrorMessage(null);
 
-    // Simulate an API delay
-    setTimeout(() => {
-      setReceipts(mockData);
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error("User not authenticated. Please log in first.");
+      }
+
+      // Query Firestore for receipts belonging to the current user
+      const receiptsRef = collection(db, "receipts");
+      const q = query(receiptsRef, where("userId", "==", user.uid));
+      const snapshot = await getDocs(q);
+
+      // Transform each document into an object that matches the shape your table expects
+      const retrievedData = snapshot.docs.map((docSnap) => {
+        const docData = docSnap.data();
+        return {
+          id: docSnap.id,
+          name: docData.name || "Untitled Receipt",
+          date: docData.date || "Unknown Date",
+          status: docData.status || "pending",
+          total: docData.total || 0
+        };
+      });
+
+      setReceipts(retrievedData);
       setLoading(false);
-    }, 1000);
+    } catch (error) {
+      console.error("Error fetching receipts:", error);
+      setErrorMessage("Unable to retrieve receipts. Please try again later.");
+      setReceipts([]);
+      setLoading(false);
+    }
   };
 
-  // Filter receipts based on status
+  /**
+   * Filters receipts by status: "all", "pending", or "analyzed".
+   */
   const applyFilter = (allReceipts, status) => {
-    if (status === "all") {
-      return allReceipts;
-    }
+    if (status === "all") return allReceipts;
     return allReceipts.filter((r) => r.status === status);
   };
 
-  // When component mounts, fetch the receipts
+  /**
+   * On mount, fetch the data from Firestore instead of a REST API.
+   */
   useEffect(() => {
     fetchReceipts();
   }, []);
 
-  // Whenever receipts or filterStatus changes, re-apply filter
+  /**
+   * Re-filter whenever `receipts` or `filterStatus` changes.
+   */
   useEffect(() => {
     const updatedList = applyFilter(receipts, filterStatus);
     setFilteredReceipts(updatedList);
   }, [receipts, filterStatus]);
 
-  // Navigate to receipt analysis page
+  /**
+   * handleViewDetails: navigate to /receipt/analysis or pass receiptId to a route/context.
+   */
   const handleViewDetails = (receiptId) => {
-    // In a real-world app, you might pass the ID to the next route,
-    // or store it in context to fetch details in the analysis page.
     navigate("/receipt/analysis");
   };
 
@@ -109,13 +124,16 @@ export default function ReceiptHistory() {
         </select>
       </div>
 
-      {/* Loading Spinner */}
-      {loading && (
-        <p className="text-gray-600">Loading receipts...</p>
+      {/* Loading Indicator */}
+      {loading && <p className="text-gray-600">Loading receipts...</p>}
+
+      {/* Error Message */}
+      {errorMessage && !loading && (
+        <p className="text-red-600 mb-4">{errorMessage}</p>
       )}
 
       {/* Receipt List Table */}
-      {!loading && filteredReceipts.length > 0 && (
+      {!loading && !errorMessage && filteredReceipts.length > 0 && (
         <div className="overflow-x-auto">
           <table className="min-w-full text-left bg-white shadow-md rounded">
             <thead className="border-b bg-gray-50">
@@ -136,7 +154,7 @@ export default function ReceiptHistory() {
                   <td className="p-4">{receipt.name}</td>
                   <td className="p-4">{receipt.date}</td>
                   <td className="p-4 capitalize">{receipt.status}</td>
-                  <td className="p-4">${receipt.total.toFixed(2)}</td>
+                  <td className="p-4">${Number(receipt.total).toFixed(2)}</td>
                   <td className="p-4 text-right">
                     <button
                       onClick={() => handleViewDetails(receipt.id)}
@@ -153,7 +171,7 @@ export default function ReceiptHistory() {
       )}
 
       {/* No Receipts Found */}
-      {!loading && filteredReceipts.length === 0 && (
+      {!loading && !errorMessage && filteredReceipts.length === 0 && (
         <p className="text-gray-600">
           No receipts found for the selected filter.
         </p>
