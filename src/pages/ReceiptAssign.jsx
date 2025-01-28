@@ -11,28 +11,52 @@ import {
 const db = getFirestore();
 
 /**
- * Checks if every item in `items` has a corresponding assignment in `assignments`.
- * If so, we consider all participants done.
+ * Checks if every item in `items` has a valid set of contributors,
+ * covering the entire item quantity with no leftover. If so, we mark them done.
  */
 function isAllItemsAssigned(items, assignments) {
-  // If no items exist, we can’t mark them all assigned
+  // If no items exist => can't mark them all assigned
   if (!items.length) return false;
 
+  // Each item must have at least one contributor with quantity > 0.
+  // (You could also fully verify sum of contributor qty == item.qty if needed.)
   return items.every((_, index) => {
-    const assignedName = assignments[index];
-    // Must have a non-empty name to be considered assigned
-    return assignedName && assignedName.trim().length > 0;
+    const contributors = assignments[index] || [];
+    const assignedQty = contributors.reduce((sum, c) => sum + parseInt(c.quantity || "0", 10), 0);
+    return assignedQty > 0; 
   });
 }
 
 export default function ReceiptAssign() {
   const { userId } = useParams(); // The host user’s ID from the URL
+
+  // Items + summary from Firestore’s "receipt_links/{userId}"
   const [items, setItems] = useState([]);
   const [summary, setSummary] = useState([]);
-  const [assignments, setAssignments] = useState({}); // Tracks item -> assigned user
+
+  /**
+   * For each item index, we hold an array of contributor objects:
+   * assignments[index] = [
+   *   { userName: "Alice", quantity: "2" },
+   *   { userName: "Bob", quantity: "3" }
+   * ]
+   */
+  const [assignments, setAssignments] = useState([]);
+
+  /**
+   * The list of possible contributor names, as specified by the host.
+   * e.g. ["Alice", "Bob", "Charlie"]
+   */
+  const [possibleContributors, setPossibleContributors] = useState([]);
+
+  /**
+   * Temporary input for the host to add names (comma-separated).
+   */
+  const [namesInput, setNamesInput] = useState("");
 
   /**
    * Fetch the data from Firestore: `receipt_links/{userId}` for items + summary.
+   * Initialize assignments with empty arrays.
    */
   useEffect(() => {
     const fetchReceiptData = async () => {
@@ -44,6 +68,9 @@ export default function ReceiptAssign() {
           const { items, summary } = docSnap.data();
           setItems(items || []);
           setSummary(summary || []);
+          // Create a blank array of contributors for each item
+          const arrayOfContributors = (items || []).map(() => []);
+          setAssignments(arrayOfContributors);
         } else {
           alert("No receipt data found for this link.");
         }
@@ -57,29 +84,72 @@ export default function ReceiptAssign() {
   }, [userId]);
 
   /**
-   * Called when a user type changes an assignment for an item at index `index`.
+   * Host inputs a list of names (comma-separated).
+   * Once "Save Names" is clicked, we parse them into an array.
    */
-  const handleAssignmentChange = (index, userName) => {
-    setAssignments((prev) => ({
-      ...prev,
-      [index]: userName
-    }));
+  const handleSaveNames = () => {
+    // Split by comma, trim whitespace, filter out empties
+    const splitNames = namesInput
+      .split(",")
+      .map((n) => n.trim())
+      .filter((n) => n.length > 0);
+    setPossibleContributors(splitNames);
+    alert("Contributor names saved!");
+  };
+
+  /**
+   * Add a new contributor object to item at 'index', e.g. { userName: '', quantity: '' }
+   */
+  const handleAddContributor = (index) => {
+    setAssignments((prev) => {
+      const updated = [...prev];
+      updated[index] = [...updated[index], { userName: "", quantity: "" }];
+      return updated;
+    });
+  };
+
+  /**
+   * Update a contributor’s fields (userName or quantity) for a specific item index.
+   */
+  const handleContributorChange = (itemIndex, contribIndex, field, newValue) => {
+    setAssignments((prev) => {
+      const updated = [...prev];
+      const contributors = [...updated[itemIndex]];
+      contributors[contribIndex] = { 
+        ...contributors[contribIndex],
+        [field]: newValue
+      };
+      updated[itemIndex] = contributors;
+      return updated;
+    });
+  };
+
+  /**
+   * Remove a contributor from a specific item’s contributor array.
+   */
+  const handleRemoveContributor = (itemIndex, contribIndex) => {
+    setAssignments((prev) => {
+      const updated = [...prev];
+      const contributors = [...updated[itemIndex]];
+      contributors.splice(contribIndex, 1);
+      updated[itemIndex] = contributors;
+      return updated;
+    });
   };
 
   /**
    * Submits assignments to Firestore at `receipt_assignments/{userId}`.
-   * Then, if every item is assigned, we set `assignmentsComplete = true` in `receipt_links/{userId}`
-   * so the host is notified in real-time that participants are done.
+   * Each item => { item, contributors: [ ... ] }
+   * Then, if all items are assigned, set `assignmentsComplete = true`.
    */
   const handleSubmitAssignments = async () => {
     try {
-      // Convert the local `assignments` object into an array: { userName, item }
-      const assignmentData = Object.entries(assignments).map(([index, userName]) => ({
-        userName,
-        item: items[Number(index)]
+      // Build the final assignment array
+      const assignmentData = items.map((item, idx) => ({
+        item,
+        contributors: assignments[idx] || []
       }));
 
-      // Upsert the user’s assignments in `receipt_assignments/{userId}`
       const assignmentRef = doc(db, "receipt_assignments", userId);
       const docSnap = await getDoc(assignmentRef);
 
@@ -97,7 +167,7 @@ export default function ReceiptAssign() {
         });
       }
 
-      // If all items have valid assignments, notify the host
+      // Check if items are fully assigned
       if (isAllItemsAssigned(items, assignments)) {
         const linkRef = doc(db, "receipt_links", userId);
         await updateDoc(linkRef, { assignmentsComplete: true });
@@ -114,46 +184,108 @@ export default function ReceiptAssign() {
     }
   };
 
-  // Combined items + summary if you ever choose to assign summary items too:
-  // const allItems = [...items, ...summary];
-
   return (
     <div className="pt-28 px-6 min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
       <h1 className="text-2xl font-bold mb-4">Assign Receipt Items</h1>
 
+      {/* 1) Host user enters a list of names for potential contributors */}
+      <div className="mb-6 bg-white p-4 rounded shadow">
+        <h2 className="text-lg font-semibold text-gray-800 mb-2">
+          Who will be contributing to this bill?
+        </h2>
+        <p className="text-sm text-gray-600 mb-3">
+          Enter comma-separated names below (e.g., "Alice, Bob, Charlie"), then click "Save Names."
+        </p>
+        <div className="flex flex-col md:flex-row gap-3">
+          <input
+            type="text"
+            className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm"
+            placeholder="Alice, Bob, Charlie"
+            value={namesInput}
+            onChange={(e) => setNamesInput(e.target.value)}
+          />
+          <button
+            onClick={handleSaveNames}
+            className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded hover:bg-blue-700 transition"
+          >
+            Save Names
+          </button>
+        </div>
+        {/* Show current list of possible contributors, if any */}
+        {possibleContributors.length > 0 && (
+          <p className="mt-2 text-sm text-gray-700">
+            <span className="font-medium">Current contributors:</span>{" "}
+            {possibleContributors.join(", ")}
+          </p>
+        )}
+      </div>
+
+      {/* 2) Display items and let user assign contributors from the saved names */}
       {items.length > 0 ? (
         <div className="bg-white p-5 rounded shadow">
           <h2 className="text-lg font-semibold mb-4 text-gray-800">Receipt Items</h2>
 
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="bg-purple-100 text-purple-700 uppercase">
-                <th className="p-2 font-semibold">Qty</th>
-                <th className="p-2 font-semibold">Item</th>
-                <th className="p-2 font-semibold">Price</th>
-                <th className="p-2 font-semibold">Assign To</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item, index) => (
-                <tr key={index} className="border-b last:border-none">
-                  <td className="p-2">{item.qty}</td>
-                  <td className="p-2">{item.name}</td>
-                  <td className="p-2">${item.price}</td>
-                  <td className="p-2">
-                    <input
-                      type="text"
-                      placeholder="Enter name"
-                      className="w-full bg-gray-50 border border-gray-300 rounded px-2 py-1"
-                      value={assignments[index] || ""}
-                      onChange={(e) => handleAssignmentChange(index, e.target.value)}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {items.map((item, index) => (
+            <div key={index} className="mb-6 border-b pb-4 last:border-none last:pb-0">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-bold text-gray-800">
+                    {item.name} (Qty: {item.qty})
+                  </p>
+                  <p className="text-sm text-gray-600">${item.price} each</p>
+                </div>
+                <button
+                  onClick={() => handleAddContributor(index)}
+                  className="px-3 py-1 bg-blue-600 text-white text-sm font-semibold rounded hover:bg-blue-700 transition"
+                >
+                  + Add Contributor
+                </button>
+              </div>
 
+              {/* Render existing contributors for this item */}
+              <div className="mt-3 space-y-2">
+                {(assignments[index] || []).map((contrib, cIdx) => (
+                  <div
+                    key={cIdx}
+                    className="flex flex-col md:flex-row md:items-center gap-2 bg-gray-50 p-2 rounded border"
+                  >
+                    {/* Instead of a text field for name, we use a dropdown from possibleContributors. */}
+                    <select
+                      className="flex-1 bg-white border border-gray-300 rounded px-2 py-1 text-sm"
+                      value={contrib.userName}
+                      onChange={(e) => handleContributorChange(index, cIdx, "userName", e.target.value)}
+                    >
+                      <option value="">-- Select Person --</option>
+                      {possibleContributors.map((person) => (
+                        <option key={person} value={person}>
+                          {person}
+                        </option>
+                      ))}
+                    </select>
+
+                    {/* Enter how many units of this item the person is paying for */}
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder="Qty"
+                      className="w-24 bg-white border border-gray-300 rounded px-2 py-1 text-sm"
+                      value={contrib.quantity}
+                      onChange={(e) => handleContributorChange(index, cIdx, "quantity", e.target.value)}
+                    />
+
+                    <button
+                      onClick={() => handleRemoveContributor(index, cIdx)}
+                      className="px-2 py-1 bg-red-500 text-white text-sm font-semibold rounded hover:bg-red-600 transition"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {/* Final submission button */}
           <button
             onClick={handleSubmitAssignments}
             className="mt-4 px-6 py-3 bg-green-600 text-white font-semibold rounded hover:bg-green-700 transition"
@@ -162,7 +294,7 @@ export default function ReceiptAssign() {
           </button>
         </div>
       ) : (
-        <p className="text-gray-600">
+        <p className="text-gray-600 mt-4">
           No items available for assignment. Please check your link or receipt data.
         </p>
       )}

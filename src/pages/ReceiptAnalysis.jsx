@@ -40,8 +40,11 @@ export default function ReceiptAnalysis() {
   const [messengerLink, setMessengerLink] = useState("");
   const [finalBreakdown, setFinalBreakdown] = useState([]);
 
-  // Load items + summary from localStorage, including Tax & Tip
+  // For “who’s assigned” overview, no changes needed from earlier code
+  const [assignedOverview, setAssignedOverview] = useState([]);
+
   useEffect(() => {
+    // Load items + summary from localStorage
     const storedItemsJSON = localStorage.getItem("receiptItems");
     let normalItems = [];
     let summaryItems = [];
@@ -58,9 +61,9 @@ export default function ReceiptAnalysis() {
       }
     }
 
+    // Also load Tax & Tip
     const taxValue = parseFloat(localStorage.getItem("receiptTax")) || 0;
     const tipValue = parseFloat(localStorage.getItem("receiptTip")) || 0;
-
     if (taxValue > 0) {
       summaryItems.push({ name: "Tax", price: taxValue, qty: "1" });
     }
@@ -72,7 +75,7 @@ export default function ReceiptAnalysis() {
     setSummary(summaryItems);
   }, []);
 
-  // Listen for assignmentsComplete at receipt_links/{user.uid}
+  // Listen for assignmentsComplete
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) return;
@@ -90,7 +93,42 @@ export default function ReceiptAnalysis() {
     return () => unsubscribe();
   }, []);
 
-  // Generate the messenger link (receipt_links/{user.uid}), resetting assignmentsComplete
+  // For assignedOverview
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user || items.length === 0) return;
+
+    const assignmentDocRef = doc(db, "receipt_assignments", user.uid);
+    const unsubAssign = onSnapshot(assignmentDocRef, (snap) => {
+      if (snap.exists()) {
+        // Now each item is { item, contributors: [ { userName, quantity }, ... ] }
+        const assignedData = snap.data().assignments || [];
+        // We'll flatten them into: itemName|price => array of { userName, quantity }
+        // Then merge with local items
+        const mapAssigned = new Map();
+        assignedData.forEach((entry) => {
+          const { item, contributors } = entry;
+          const key = `${item.name}|${item.price}`;
+          mapAssigned.set(key, contributors);
+        });
+
+        const merged = items.map((it) => {
+          const key = `${it.name}|${it.price}`;
+          const contributors = mapAssigned.get(key) || [];
+          return { ...it, contributors };
+        });
+        setAssignedOverview(merged);
+      } else {
+        // No assignment doc => everything unassigned
+        const unassigned = items.map((it) => ({ ...it, contributors: [] }));
+        setAssignedOverview(unassigned);
+      }
+    });
+
+    return () => unsubAssign();
+  }, [items]);
+
+  // Generate link
   const handleGenerateMessengerLink = async () => {
     try {
       const user = auth.currentUser;
@@ -120,7 +158,11 @@ export default function ReceiptAnalysis() {
     }
   };
 
-  // Retrieves assigned items from receipt_assignments/{user.uid} to compute final owed amounts
+  /**
+   * Updated final breakdown logic:
+   * - We read each item’s array of contributors.
+   * - We group them by userName so that each user has a single line, summing partial quantities across multiple items.
+   */
   const handleCalculateBreakdown = async () => {
     try {
       const user = auth.currentUser;
@@ -134,44 +176,71 @@ export default function ReceiptAnalysis() {
         return;
       }
 
-      const assignments = assignmentSnap.data().assignments;
-      const sumOfItemPrices = items.reduce((acc, i) => acc + parseFloat(i.price || 0), 0);
+      // assignmentDocRef stores an array of { item, contributors: [ { userName, quantity } ] }
+      const data = assignmentSnap.data().assignments || [];
 
-      // Identify Tax and Tip totals
+      // Combine partial quantity across multiple items for each userName
+      // building structure: userTotals[userName] = { totalBaseCost, totalTax, totalTip }
+      const userTotals = {};
+
+      // Sum of item prices for distributing tax/tip
+      const sumOfItemPrices = items.reduce((acc, i) => acc + parseFloat(i.price || 0) * parseInt(i.qty || "1", 10), 0);
+
+      // Identify Tax and Tip
       const taxItem = summary.find((s) => s.name.toLowerCase().includes("tax"));
       const tipItem = summary.find((s) => s.name.toLowerCase().includes("tip"));
       const totalTax = parseFloat(taxItem?.price || 0);
       const totalTip = parseFloat(tipItem?.price || 0);
       const totalSummary = totalTax + totalTip;
 
-      // Build final cost array with detailed info
-      const details = assignments.map((assignment) => {
-        const assignedItem = assignment.item || {};
-        const itemName = assignedItem.name || "Unknown Item";
-        const qty = parseInt(assignedItem.qty || "1", 10);
-        const price = parseFloat(assignedItem.price || "0");
-        const itemTotal = qty * price;
+      // Process each assigned item, and each contributor in that item
+      data.forEach(({ item, contributors }) => {
+        const itemName = item.name || "Unknown Item";
+        const itemQty = parseInt(item.qty || "1", 10);
+        const priceEach = parseFloat(item.price || "0");
 
-        // Tax + Tip contributions
-        let shareTax = 0;
-        let shareTip = 0;
-        if (sumOfItemPrices > 0) {
-          shareTax = (itemTotal / sumOfItemPrices) * totalTax;
-          shareTip = (itemTotal / sumOfItemPrices) * totalTip;
-        }
+        // itemBase = itemQty * priceEach total cost for entire item
+        // We'll distribute tax & tip proportionally.
+        // But each contributor’s partial quantity => partial base cost => partial share of tax/tip
+        contributors.forEach(({ userName, quantity }) => {
+          if (!userName || !quantity) return; // skip empty
+          const partialQty = parseInt(quantity, 10) || 0;
+          if (partialQty <= 0) return;
 
-        return {
-          userName: assignment.userName,
-          itemName,
-          itemQty: qty,
-          itemBaseCost: itemTotal,
-          taxContribution: shareTax,
-          tipContribution: shareTip,
-          totalOwed: itemTotal + shareTax + shareTip
-        };
+          const partialBaseCost = partialQty * priceEach;
+
+          // Distribute tax/tip if sumOfItemPrices is known
+          let partialTax = 0;
+          let partialTip = 0;
+          if (sumOfItemPrices > 0) {
+            partialTax = (partialBaseCost / sumOfItemPrices) * totalTax;
+            partialTip = (partialBaseCost / sumOfItemPrices) * totalTip;
+          }
+
+          // Accumulate into userTotals
+          if (!userTotals[userName]) {
+            userTotals[userName] = {
+              userName,
+              items: [], // keep an array of { itemName, partialQty, partialBaseCost, partialTax, partialTip }
+              totalOwed: 0
+            };
+          }
+
+          userTotals[userName].items.push({
+            itemName,
+            partialQty,
+            partialBaseCost,
+            partialTax,
+            partialTip
+          });
+          userTotals[userName].totalOwed += partialBaseCost + partialTax + partialTip;
+        });
       });
 
-      setFinalBreakdown(details);
+      // Now we flatten userTotals into finalBreakdown array
+      const breakdownArray = Object.values(userTotals);
+      setFinalBreakdown(breakdownArray);
+
       alert("Final breakdown calculated successfully!");
     } catch (err) {
       if (err.code === "permission-denied") {
@@ -183,7 +252,7 @@ export default function ReceiptAnalysis() {
     }
   };
 
-  // Copy link helper
+  // Copy link
   const handleCopyLink = () => {
     if (!messengerLink) return;
     navigator.clipboard
@@ -196,10 +265,9 @@ export default function ReceiptAnalysis() {
       });
   };
 
-  // Optional share link helper (for browsers supporting the Web Share API)
+  // Optional share link
   const handleShareLink = () => {
     if (!messengerLink) return;
-
     if (navigator.share) {
       navigator
         .share({
@@ -249,7 +317,58 @@ export default function ReceiptAnalysis() {
             </div>
           )}
 
-          {/* Buttons for generating link and final breakdown */}
+          {/* Assigned Overview logic remains the same as before */}
+          {assignedOverview.length > 0 && (
+            <div className="mb-6 p-4 bg-yellow-50 rounded border border-yellow-200">
+              <h3 className="text-md font-bold mb-2 text-yellow-700">🧑‍🤝‍🧑 Assigned Overview</h3>
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="bg-yellow-100 text-yellow-700 uppercase">
+                    <th className="p-2 font-semibold">Qty</th>
+                    <th className="p-2 font-semibold">Item</th>
+                    <th className="p-2 font-semibold">Contributors</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {assignedOverview.map((it, idx) => {
+                    const totalAssignedQty = (it.contributors || []).reduce(
+                      (sum, c) => sum + parseInt(c.quantity || "0", 10),
+                      0
+                    );
+                    return (
+                      <tr key={idx} className="border-b last:border-none">
+                        <td className="p-2">{it.qty}</td>
+                        <td className="p-2">{it.name}</td>
+                        <td className="p-2">
+                          {it.contributors && it.contributors.length > 0 ? (
+                            <ul className="list-disc list-inside">
+                              {it.contributors.map((c, cIdx) => (
+                                <li key={cIdx}>
+                                  <span className="font-semibold">{c.userName}:</span>{" "}
+                                  <span>
+                                    {c.quantity} {parseInt(c.quantity, 10) > 1 ? "units" : "unit"}
+                                  </span>
+                                </li>
+                              ))}
+                              {totalAssignedQty < parseInt(it.qty || "1", 10) && (
+                                <li className="text-red-500 font-semibold">
+                                  Still unassigned for {parseInt(it.qty, 10) - totalAssignedQty} more
+                                </li>
+                              )}
+                            </ul>
+                          ) : (
+                            <span className="text-red-500 font-semibold">Unassigned</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Buttons */}
           <div className="mt-6 flex flex-col md:flex-row gap-4">
             <button
               onClick={handleGenerateMessengerLink}
@@ -265,7 +384,7 @@ export default function ReceiptAnalysis() {
             </button>
           </div>
 
-          {/* Show the newly generated link in an enhanced card with copy/share */}
+          {/* Generated link */}
           {messengerLink && (
             <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded">
               <h4 className="text-md font-bold text-blue-700 mb-2">
@@ -297,48 +416,43 @@ export default function ReceiptAnalysis() {
             </div>
           )}
 
-          {/* Improved Final Breakdown: card-style display with item details & tax/tip */}
+          {/* Final Breakdown, now aggregated by userName */}
           {finalBreakdown.length > 0 && (
             <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded">
               <h4 className="text-md font-bold text-green-700">Final Breakdown</h4>
               <div className="grid gap-4 mt-4 sm:grid-cols-2 lg:grid-cols-3">
-                {finalBreakdown.map((person, idx) => (
+                {finalBreakdown.map((entry, idx) => (
                   <div
                     key={idx}
                     className="bg-white p-4 rounded shadow border border-green-200 flex flex-col gap-2"
                   >
                     <h5 className="text-lg font-semibold text-gray-700 capitalize">
-                      {person.userName}
+                      {entry.userName}
                     </h5>
-                    <p className="text-sm text-gray-600">
-                      <span className="font-medium">Item:</span>{" "}
-                      <span className="text-gray-800">
-                        {person.itemName} (x{person.itemQty})
-                      </span>
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      <span className="font-medium">Base Cost:</span>{" "}
-                      <span className="text-gray-800">
-                        ${person.itemBaseCost.toFixed(2)}
-                      </span>
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      <span className="font-medium">Tax Contribution:</span>{" "}
-                      <span className="text-gray-800">
-                        ${person.taxContribution.toFixed(2)}
-                      </span>
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      <span className="font-medium">Tip Contribution:</span>{" "}
-                      <span className="text-gray-800">
-                        ${person.tipContribution.toFixed(2)}
-                      </span>
-                    </p>
-                    <p className="text-sm text-gray-600 border-t pt-2 mt-2">
+                    {/* Show each partial item they contributed to */}
+                    <div className="space-y-2 text-sm text-gray-600">
+                      {entry.items.map((itm, iIdx) => (
+                        <div key={iIdx} className="bg-gray-50 p-2 rounded border">
+                          <p>
+                            <span className="font-medium">Item:</span> {itm.itemName} (x{itm.partialQty})
+                          </p>
+                          <p>
+                            <span className="font-medium">Base Cost:</span> $
+                            {itm.partialBaseCost.toFixed(2)}
+                          </p>
+                          <p>
+                            <span className="font-medium">Tax:</span> $
+                            {itm.partialTax.toFixed(2)}
+                            {"  "}
+                            <span className="font-medium">Tip:</span> $
+                            {itm.partialTip.toFixed(2)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-sm text-gray-700 border-t pt-2 mt-2">
                       <span className="font-medium">Total Owed:</span>{" "}
-                      <span className="text-gray-800">
-                        ${person.totalOwed.toFixed(2)}
-                      </span>
+                      <span className="text-gray-800">${entry.totalOwed.toFixed(2)}</span>
                     </p>
                   </div>
                 ))}
