@@ -19,11 +19,11 @@ function isAllItemsAssigned(items, assignments) {
   if (!items.length) return false;
 
   // Each item must have at least one contributor with quantity > 0.
-  // (You could also fully verify sum of contributor qty == item.qty if needed.)
+  // (Optionally verify sum of contributor qty == item.qty if you want a stricter check.)
   return items.every((_, index) => {
     const contributors = assignments[index] || [];
     const assignedQty = contributors.reduce((sum, c) => sum + parseInt(c.quantity || "0", 10), 0);
-    return assignedQty > 0; 
+    return assignedQty > 0;
   });
 }
 
@@ -45,7 +45,6 @@ export default function ReceiptAssign() {
 
   /**
    * The list of possible contributor names, as specified by the host.
-   * e.g. ["Alice", "Bob", "Charlie"]
    */
   const [possibleContributors, setPossibleContributors] = useState([]);
 
@@ -55,8 +54,8 @@ export default function ReceiptAssign() {
   const [namesInput, setNamesInput] = useState("");
 
   /**
-   * Fetch the data from Firestore: `receipt_links/{userId}` for items + summary.
-   * Initialize assignments with empty arrays.
+   * Fetch data from Firestore (`receipt_links/{userId}`) for items + summary.
+   * Initialize assignments with empty arrays matching the item count.
    */
   useEffect(() => {
     const fetchReceiptData = async () => {
@@ -85,10 +84,9 @@ export default function ReceiptAssign() {
 
   /**
    * Host inputs a list of names (comma-separated).
-   * Once "Save Names" is clicked, we parse them into an array.
+   * Once "Save Names" is clicked, parse them into an array and store.
    */
   const handleSaveNames = () => {
-    // Split by comma, trim whitespace, filter out empties
     const splitNames = namesInput
       .split(",")
       .map((n) => n.trim())
@@ -98,7 +96,7 @@ export default function ReceiptAssign() {
   };
 
   /**
-   * Add a new contributor object to item at 'index', e.g. { userName: '', quantity: '' }
+   * Add a new contributor object to item at 'index': { userName: '', quantity: '' }
    */
   const handleAddContributor = (index) => {
     setAssignments((prev) => {
@@ -109,17 +107,45 @@ export default function ReceiptAssign() {
   };
 
   /**
-   * Update a contributor’s fields (userName or quantity) for a specific item index.
+   * Update a contributor’s fields (userName or quantity).
+   * Enforce these rules:
+   * 1) quantity >= 1
+   * 2) sum of contributor quantities ≤ the item’s total qty
    */
   const handleContributorChange = (itemIndex, contribIndex, field, newValue) => {
     setAssignments((prev) => {
       const updated = [...prev];
       const contributors = [...updated[itemIndex]];
-      contributors[contribIndex] = { 
-        ...contributors[contribIndex],
-        [field]: newValue
-      };
-      updated[itemIndex] = contributors;
+      const oldContributor = contributors[contribIndex];
+      const itemQty = parseInt(items[itemIndex]?.qty || "1", 10);
+
+      // We clone the contributor and update the relevant field
+      const newContributor = { ...oldContributor, [field]: newValue };
+
+      // If the user is editing quantity, enforce minimum 1
+      if (field === "quantity") {
+        let parsedQty = parseInt(newValue, 10);
+        if (isNaN(parsedQty) || parsedQty < 1) {
+          parsedQty = 1; // clamp to 1
+        }
+        newContributor.quantity = parsedQty.toString();
+      }
+
+      // Temporarily replace the old contributor with the new one
+      contributors[contribIndex] = newContributor;
+
+      // Now check if the sum of all contributor quantities <= itemQty
+      const sumOfContribs = contributors.reduce((sum, c) => sum + parseInt(c.quantity || "0", 10), 0);
+      if (sumOfContribs > itemQty) {
+        // Revert: remove the newly updated quantity or show an alert
+        alert(`Cannot exceed total quantity of ${itemQty} for this item.`);
+        // restore old value
+        contributors[contribIndex] = oldContributor;
+      } else {
+        // Otherwise, keep the new contributor
+        updated[itemIndex] = contributors;
+      }
+
       return updated;
     });
   };
@@ -139,12 +165,10 @@ export default function ReceiptAssign() {
 
   /**
    * Submits assignments to Firestore at `receipt_assignments/{userId}`.
-   * Each item => { item, contributors: [ ... ] }
-   * Then, if all items are assigned, set `assignmentsComplete = true`.
+   * If all items are assigned, set `assignmentsComplete = true`.
    */
   const handleSubmitAssignments = async () => {
     try {
-      // Build the final assignment array
       const assignmentData = items.map((item, idx) => ({
         item,
         contributors: assignments[idx] || []
@@ -188,13 +212,13 @@ export default function ReceiptAssign() {
     <div className="pt-28 px-6 min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
       <h1 className="text-2xl font-bold mb-4">Assign Receipt Items</h1>
 
-      {/* 1) Host user enters a list of names for potential contributors */}
+      {/* 1) Host user enters list of names for potential contributors */}
       <div className="mb-6 bg-white p-4 rounded shadow">
         <h2 className="text-lg font-semibold text-gray-800 mb-2">
           Who will be contributing to this bill?
         </h2>
         <p className="text-sm text-gray-600 mb-3">
-          Enter comma-separated names below (e.g., "Alice, Bob, Charlie"), then click "Save Names."
+          Enter comma-separated names below (e.g. "Alice, Bob, Charlie"), then click "Save Names."
         </p>
         <div className="flex flex-col md:flex-row gap-3">
           <input
@@ -211,7 +235,6 @@ export default function ReceiptAssign() {
             Save Names
           </button>
         </div>
-        {/* Show current list of possible contributors, if any */}
         {possibleContributors.length > 0 && (
           <p className="mt-2 text-sm text-gray-700">
             <span className="font-medium">Current contributors:</span>{" "}
@@ -242,14 +265,14 @@ export default function ReceiptAssign() {
                 </button>
               </div>
 
-              {/* Render existing contributors for this item */}
+              {/* Contributors for this item */}
               <div className="mt-3 space-y-2">
                 {(assignments[index] || []).map((contrib, cIdx) => (
                   <div
                     key={cIdx}
                     className="flex flex-col md:flex-row md:items-center gap-2 bg-gray-50 p-2 rounded border"
                   >
-                    {/* Instead of a text field for name, we use a dropdown from possibleContributors. */}
+                    {/* Use a dropdown from possibleContributors */}
                     <select
                       className="flex-1 bg-white border border-gray-300 rounded px-2 py-1 text-sm"
                       value={contrib.userName}
@@ -263,7 +286,7 @@ export default function ReceiptAssign() {
                       ))}
                     </select>
 
-                    {/* Enter how many units of this item the person is paying for */}
+                    {/* Enter how many units of this item this person gets */}
                     <input
                       type="number"
                       min="1"
